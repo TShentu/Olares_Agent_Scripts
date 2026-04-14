@@ -1,0 +1,22 @@
+# Copy this file to config.yaml and set your real paths and URLs.
+# config.yaml is gitignored — do not commit secrets or internal paths.
+
+# Branch to checkout when using sync_repos.py or compare_chart_versions.py (sync is default)
+git_branch: main
+
+# Blacklist file: one app directory name per line. Relative paths are resolved from
+# the directory containing this config file. Use "" to disable the blacklist.
+blacklist: "blacklist.txt"
+
+prod:
+  # Fork URL (typically origin)
+  github: "https://github.com/YOUR_FORK/olares-apps-prod"
+  # Upstream (parent) repo — required for fork sync before merging origin
+  upstream: "https://github.com/ORG/upstream-apps-prod"
+  # Local directory that contains app folders (each with Chart.yaml or .suspend/.remove)
+  local_path: "/absolute/path/to/prod/repo/apps-origin"
+
+test:
+  github: "https://github.com/YOUR_FORK/olares-apps-test"
+  upstream: "https://github.com/ORG/upstream-apps-test"
+  local_path: "/absolute/path/to/test/repo/apps-origin"

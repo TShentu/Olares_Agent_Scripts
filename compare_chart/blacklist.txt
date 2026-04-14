@@ -1,0 +1,2 @@
+# One app name per line (directory name under prod/test roots). Case-insensitive.
+# Lines starting with # and empty lines are ignored.
