@@ -9,19 +9,19 @@
 **触发格式**（slash command）：
 
 ```text
-/compare_chart [参数...]
+!compare_chart [参数...]
 ```
 
-- **`/compare_chart`**：唤起本技能；**其后所有 token** 与命令行 **`compare_chart_versions.py`** 一致，原样转发即可（例如 `/compare_chart --skip-sync`、 `/compare_chart -c other/config.yaml -A`）。默认读取**当前工作目录**下的 `config.yaml`，一般无需 `-c`。
-- **`/compare_chart -h`**：列出**全部**可用参数与说明；实现上等价于在 `compare_chart` 目录执行：
+- **`!compare_chart`**：唤起本技能；**其后所有 token** 与命令行 **`compare_chart_versions.py`** 一致，原样转发即可（例如 `!compare_chart --skip-sync`、 `!compare_chart -c other/config.yaml -A`）。默认读取**当前工作目录**下的 `config.yaml`，一般无需 `-c`。
+- **`!compare_chart -h`**：列出**全部**可用参数与说明；实现上等价于在 `compare_chart` 目录执行：
 
   ```bash
   python3 compare_chart_versions.py -h
   ```
 
-  亦可用 **`/compare_chart --help`**，与 `-h` 相同。
+  亦可用 **`!compare_chart --help`**，与 `-h` 相同。
 
-**实现映射（供宿主 / Agent 集成）**：将 `/compare_chart` 之后的内容作为 `compare_chart_versions.py` 的 `argv`（跳过第一个占位参数），在 **`compare_chart` 目录作为当前工作目录**下执行上述 Python 脚本即可。
+**实现映射（供宿主 / Agent 集成）**：将 `!compare_chart` 之后的内容作为 `compare_chart_versions.py` 的 `argv`（跳过第一个占位参数），在 **`compare_chart` 目录作为当前工作目录**下执行上述 Python 脚本即可。
 
 **关于 `-h`**：帮助文案中的默认配置描述为「当前目录下的 `config.yaml`」，**不会**出现机器相关的绝对路径；完整列表以运行时 `python3 compare_chart_versions.py -h` 为准。
 
@@ -39,7 +39,7 @@
 
 | 场景 | 建议 |
 |------|------|
-| 用户要核对 prod/test 应用版本是否一致 | 触发 **`/compare_chart`** 或运行 `compare_chart_versions.py`（参数一致） |
+| 用户要核对 prod/test 应用版本是否一致 | 触发 **`!compare_chart`** 或运行 `compare_chart_versions.py`（参数一致） |
 | 用户只想看当前磁盘上的差异，不能改 Git | 必须加 **`--skip-sync`** |
 | 用户要先拉代码再比对 | 默认命令（不带 `--skip-sync`） |
 | 私有仓库 `fetch` 失败 | 确认环境中有 **`GITHUB_TOKEN`** / **`GH_TOKEN`** 或 **`GITHUB_TOKEN_FILE`** |
@@ -110,7 +110,7 @@
 
 ## 凭证与安全（Agent 必须遵守）
 
-- **Access token 来源**：Agent **仅从自身运行环境**读取凭证，优先级与脚本一致：`GITHUB_TOKEN`、`GH_TOKEN`，或 **`GITHUB_TOKEN_FILE`**（指向文件）。宿主应在启动 Agent 或任务环境中注入上述变量，**不要求、也不应要求用户通过 `/compare_chart` 或聊天消息传递 token**。
+- **Access token 来源**：Agent **仅从自身运行环境**读取凭证，优先级与脚本一致：`GITHUB_TOKEN`、`GH_TOKEN`，或 **`GITHUB_TOKEN_FILE`**（指向文件）。宿主应在启动 Agent 或任务环境中注入上述变量，**不要求、也不应要求用户通过 `!compare_chart` 或聊天消息传递 token**。
 - **`--token-env NAME`**：仅用于指定「从**哪一个环境变量名**读取 token」，变量值仍须已在 Agent 环境中设置；**不是**让用户在指令里贴上 secret。
 - **禁止**在对话、代码或提交中写入真实 **GitHub token**。
 - **禁止**建议用户把 token 写入仓库内 `github.txt` 或 `config.yaml` 并提交；`config.yaml` 含本地路径，亦不应提交。

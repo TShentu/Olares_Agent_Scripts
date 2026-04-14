@@ -1,2 +1,33 @@
 # One app name per line (directory name under prod/test roots). Case-insensitive.
 # Lines starting with # and empty lines are ignored.
+didgate
+llamacppqwen35a3b
+louter
+magicpig
+merchant
+nomad
+r4business
+r4entertainment
+r4sport
+r4tech
+r4techbiz
+r4wechat
+r4world
+rabbitmq
+testapp1
+testapp2
+testapp3v2
+testenv
+testnsfw
+testpayment
+testpermission
+testpid
+vllmbgem3
+vllmbgererankerv2m3
+vllmdeepseekocr3bv2
+vllmglm45airfp8
+vllmnomicembedtextv15
+vllmphi414b
+vllmqwen3235b
+vllmqwen3embedding4b
+vllmqwen3reranker4b
