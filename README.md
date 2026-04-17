@@ -1,109 +1,48 @@
 # Olares Agent Scripts
 
-面向 Olares 相关自动化与 Agent 工作流的脚本集合。仓库按**子目录**组织不同用途的工具；当前包含 **`compare_chart`**（对比两套应用目录中的 Chart 版本与状态）。后续可在本 README 中追加新的脚本说明。
+面向 Olares 相关自动化与 Agent 工作流的脚本集合；按子目录划分工具。下文**每个工具一节**：用途、用法、注意事项。
 
 ---
 
-## 环境要求
+## 环境
 
 - Python 3.9+（建议 3.10+）
-- 各子目录若提供 `requirements.txt`，请在该目录下安装依赖，例如：
-
-```bash
-pip install -r compare_chart/requirements.txt
-```
+- 进入对应子目录后安装依赖：`pip install -r <子目录>/requirements.txt`
 
 ---
 
-## `compare_chart/` — Chart 版本对比与仓库同步
+## `compare_chart/` — 双源 Chart 对比与仓库预同步
 
-### 作用与目的
+### 用途
 
-在两条 Olares 应用源（例如 **prod** 与 **test** 对应的本地克隆）之间，按**应用目录名**对齐，比较：
+在 **prod** 与 **test** 两套本地应用根目录之间，按应用名对齐，比较 `Chart.yaml` 的 **version** 以及 **`.suspend` / `.remove`** 等状态，用于快速发现两套源是否一致。默认在对比**之前**会对两侧 Git 仓库执行 fetch，并在 fork 场景下合并 **upstream** 与 **origin**（与 `sync_repos.py` 逻辑一致）。
 
-- 各应用目录下 **`Chart.yaml` 中的 `version`**
-- 特殊状态文件：**`.suspend`**、**`.remove`**（与仅版本号并列展示）
-- 仅一侧存在目录时表现为 **empty** 等差异
+### 用法
 
-用于快速发现两套源之间「同名应用」的版本或上架状态是否一致。可选在比较**之前**自动对本地 Git 仓库执行 **fetch / 合并**，使对比基于与远端对齐后的代码（fork 场景下还可先与 **upstream** 同步）。
+1. 复制配置并填写路径与仓库 URL：
 
-### 目录内文件
+   ```bash
+   cp compare_chart/config.yaml.template compare_chart/config.yaml
+   ```
 
-| 文件 | 说明 |
-|------|------|
-| `config.yaml.template` | 配置模板；复制为 `config.yaml` 后填写（`config.yaml` 已 gitignore，避免泄露路径与仓库信息） |
-| `compare_chart_versions.py` | 主入口：默认先同步再比较；支持黑名单与多种过滤参数 |
-| `sync_repos.py` | 仅执行同步（不比较）；逻辑与主脚本中的同步阶段一致 |
-| `validate_config.py` | 校验 `config.yaml` 中路径、黑名单文件等是否可用 |
-| `blacklist.txt` | 默认黑名单（应用目录名，一行一个）；也可在配置中指定其它路径 |
-| `requirements.txt` | Python 依赖（当前为 PyYAML） |
-| `skills.md` | 供 OpenClaw / Agent 使用的操作说明与决策要点 |
-| `changelog.md` | 本目录变更记录 |
+2. 建议在 **`compare_chart` 目录下**执行脚本，使默认读取当前目录的 `config.yaml`；否则用 `-c` 指定配置文件路径。
 
-### 配置说明（`config.yaml`）
+   ```bash
+   cd compare_chart
+   pip install -r requirements.txt
+   python3 validate_config.py              # 可选：检查路径与黑名单文件
+   python3 compare_chart_versions.py       # 默认先同步再比较
+   python3 compare_chart_versions.py --skip-sync   # 只读本地，不做 git
+   python3 sync_repos.py                   # 仅同步 prod/test，不比较
+   ```
 
-从模板复制：
+3. 常用参数（完整列表见 `python3 compare_chart_versions.py -h`）：`--skip-sync`、`-A/--all`、`--git-branch`、`--allow-dirty`（仅与同步配合）、`--token-env`、` -b/--blacklist`、`-c/--config`。
 
-```bash
-cp compare_chart/config.yaml.template compare_chart/config.yaml
-```
+### 注意事项
 
-主要字段：
-
-- **`git_branch`**：同步时检出的分支，默认 `main`。
-- **`blacklist`**：黑名单文件路径；相对路径相对于 **`config.yaml` 所在目录**；空字符串 `""` 表示不使用黑名单。
-- **`prod` / `test`**（必填）：
-  - **`github`**：对应该侧的 GitHub 仓库地址（用于日志展示与核对，脚本不会自动 `clone`）。
-  - **`local_path`**：本地**应用根目录**（其下每个子目录为一个应用，内含 `Chart.yaml` 或 `.suspend` / `.remove`）。
-  - **`upstream`**（可选）：上游父仓库 HTTPS 地址；若为 fork，同步时会 `fetch upstream` 并合并 `upstream/<git_branch>`，再合并 `origin/<git_branch>`。若本地已配置 `upstream` remote，即使未填此项也会尝试使用已有 upstream。
-
-### 默认配置文件与当前工作目录
-
-- 三个脚本 **`compare_chart_versions.py`**、**`sync_repos.py`**、**`validate_config.py`** 在未传入 **`-c` / `--config`** 时，均默认读取 **进程当前工作目录**下的 **`config.yaml`**（相对路径 `./config.yaml`），**不是**脚本文件所在目录。
-- 因此推荐：先 **`cd compare_chart`**，将 `config.yaml` 放在该目录下再运行，即可省略 `-c`。
-- 若在**仓库根目录**执行 `python3 compare_chart/compare_chart_versions.py`，默认会在**根目录**查找 `config.yaml`；此时应 **`cd compare_chart`**，或使用 **`-c compare_chart/config.yaml`**（或你的配置文件相对/绝对路径）。
-- **`python3 compare_chart_versions.py -h`**（及 **`--help`**）列出全部参数；帮助中的默认说明为「当前目录下的 `config.yaml`」，**不**包含机器相关的绝对路径。
-
-### 操作说明
-
-在 `compare_chart` 目录下执行（或从其它目录调用时按上一节使用 `-c`）：
-
-```bash
-cd compare_chart
-pip install -r requirements.txt
-```
-
-**1. 校验配置（可选）**
-
-在 `compare_chart` 目录下且存在 `./config.yaml` 时无需 `-c`：
-
-```bash
-python3 validate_config.py
-```
-
-**2. 比较 Chart（默认会先同步再比较）**
-
-```bash
-python3 compare_chart_versions.py
-```
-
-**3. 只读本地、不做任何 Git 操作**
-
-若希望完全基于当前磁盘上的文件比较（不 `fetch`、不 `merge`）：
-
-```bash
-python3 compare_chart_versions.py --skip-sync
-```
-
-**4. 仅同步、不比较**
-
-```bash
-python3 sync_repos.py
-```
-
-其它路径的配置文件使用 **`-c` / `--config`** 指定，例如 `-c ../my-config.yaml`。
-
-**查看帮助**：`python3 compare_chart_versions.py -h`；`sync_repos.py`、`validate_config.py` 同样支持 **`-h`**，且 **`--config` 默认行为与主脚本一致**。
+- **工作目录**：未指定 `-c` 时，读取的是**进程当前目录**下的 `config.yaml`，不是脚本所在目录；在仓库根运行 `python compare_chart/compare_chart_versions.py` 时要么 `cd compare_chart`，要么 `-c compare_chart/config.yaml`。
+- **凭证**：私有仓库 `fetch` 需要 **`GITHUB_TOKEN` / `GH_TOKEN`** 或 **`GITHUB_TOKEN_FILE`**（文件内可为单行 token 或 `KEY=value`）；勿把 token 写入仓库。
+- **忽略文件**：`compare_chart/config.yaml`、本地 `github.txt` 等含路径或密钥的文件请勿提交（见根目录 `.gitignore`）。
 
 ### 常用参数（`compare_chart_versions.py`）
 
@@ -121,30 +60,41 @@ python3 sync_repos.py
 
 说明：**`--allow-dirty` 仅在未使用 `--skip-sync` 时有效**；若只做本地对比，请使用 `--skip-sync`，无需 `--allow-dirty`。
 
-### GitHub 访问令牌（同步私有仓库时）
-
-同步阶段需要对 `git fetch` 授权时，由**运行环境或调用方**注入凭证，**不要**把 token 写入仓库或提交到 Git。
-
-推荐方式（任选）：
-
-- 环境变量 **`GITHUB_TOKEN`** 或 **`GH_TOKEN`**
-- 环境变量 **`GITHUB_TOKEN_FILE`**：指向文件路径；文件内可为单行 token，或 `KEY=value` 形式（脚本会解析等号右侧）
-
-私有仓库在未设置 token 时，`fetch` 可能失败。
-
-### 安全与仓库忽略项
-
-- **`compare_chart/config.yaml`**：包含本地路径与仓库信息，已列入 `.gitignore`，请勿提交。
-- **`compare_chart/github.txt`**：若用于本地测试 token，同样应忽略；切勿将真实 token 提交远端。
-
 ---
 
-## 后续脚本
+## `sync_chart/` — 从 test 同步 Chart 到 prod 并向上游提 PR
 
-在本仓库中新增其它脚本目录时，建议：
+### 用途
 
-1. 在该目录下提供 `README` 片段或在本文件增加二级标题说明用途、依赖与用法。
-2. 敏感配置使用模板 + gitignore 的实际配置文件模式。
+将 **test** 配置中 `local_path` 下的某个应用目录，**整目录覆盖复制**到 **prod** 的 `local_path`；在 **prod** 的本地克隆上新建分支、提交、推送到 **prod 的 fork**，并对 **`prod.upstream`** 创建**草稿 PR**（标题/正文格式对齐 GithubSync 中 `sync_folders` 一类约定）。默认执行前会调用与 `compare_chart` 相同的 **`sync_from_config`**，保证两侧 fork 已 fetch 并合并 upstream 最新提交。
+
+### 用法
+
+1. 复制配置（可与 `compare_chart` 共用同一份 `config.yaml`）：
+
+   ```bash
+   cp sync_chart/config.yaml.template sync_chart/config.yaml
+   ```
+
+2. 在 **`sync_chart` 目录下**执行（或 `-c` 指向配置文件）：
+
+   ```bash
+   cd sync_chart
+   pip install -r requirements.txt
+   python3 sync_chart.py <CHART>                    # 同步单个应用目录名
+   python3 sync_chart.py --batch charts.txt       # 批量：txt 每行一个目录名，# 为注释
+   python3 sync_chart.py myapp --title "说明"       # 标题在 [TYPE][name][ver] 后追加说明
+   ```
+
+3. 其它参数：`--branch`、`--allow-dirty`、`--token-env`、`--skip-preflight`（跳过预同步，仅调试用）。帮助：`python3 sync_chart.py -h`。
+
+### 注意事项
+
+- **依赖同仓库中的 `compare_chart`**：通过 `sys.path` 引用 `compare_chart` 的 `sync_repos` 与配置加载；请与本仓库一并检出，不要单独拆走 `sync_chart` 目录。
+- **prod 工作区**：默认要求 **prod 克隆无未提交更改**；否则需先处理或使用 `--allow-dirty`。
+- **提交身份**：在 prod 仓库配置 `user.name` / `user.email`，或设置环境变量 **`GIT_AUTHOR_NAME`**、**`GIT_AUTHOR_EMAIL`**。
+- **Token**：推送与创建 PR 需要 token（环境变量或 `GITHUB_TOKEN_FILE`）；**勿将 `config.yaml`、`github.txt` 提交到远端**。
+- **批量列表**：`--batch` 的参数是**文件路径**（txt），不是命令行罗列多个 chart。
 
 ---
 

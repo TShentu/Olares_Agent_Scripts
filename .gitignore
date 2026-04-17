@@ -197,6 +197,8 @@ cython_debug/
 # Local compare_chart secrets (copy from config.yaml.template)
 compare_chart/config.yaml
 compare_chart/github.txt
+sync_chart/config.yaml
+sync_chart/github.txt
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
