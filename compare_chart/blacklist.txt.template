@@ -1,0 +1,3 @@
+# One app name per line (directory name under prod/test roots). Case-insensitive.
+# Lines starting with # and empty lines are ignored.
+# Copy this file to blacklist.txt in the same directory (blacklist.txt is gitignored).

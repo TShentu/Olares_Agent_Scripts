@@ -19,10 +19,11 @@
 
 ### 用法
 
-1. 复制配置并填写路径与仓库 URL：
+1. 复制配置并填写路径与仓库 URL；若使用黑名单，从模板生成本地文件（已 gitignore）：
 
    ```bash
    cp compare_chart/config.yaml.template compare_chart/config.yaml
+   cp compare_chart/blacklist.txt.template compare_chart/blacklist.txt
    ```
 
 2. 建议在 **`compare_chart` 目录下**执行脚本，使默认读取当前目录的 `config.yaml`；否则用 `-c` 指定配置文件路径。
@@ -42,7 +43,7 @@
 
 - **工作目录**：未指定 `-c` 时，读取的是**进程当前目录**下的 `config.yaml`，不是脚本所在目录；在仓库根运行 `python compare_chart/compare_chart_versions.py` 时要么 `cd compare_chart`，要么 `-c compare_chart/config.yaml`。
 - **凭证**：私有仓库 `fetch` 需要 **`GITHUB_TOKEN` / `GH_TOKEN`** 或 **`GITHUB_TOKEN_FILE`**（文件内可为单行 token 或 `KEY=value`）；勿把 token 写入仓库。
-- **忽略文件**：`compare_chart/config.yaml`、本地 `github.txt` 等含路径或密钥的文件请勿提交（见根目录 `.gitignore`）。
+- **忽略文件**：`compare_chart/config.yaml`、`compare_chart/blacklist.txt`、本地 `github.txt` 等含路径或密钥的文件请勿提交（见根目录 `.gitignore`）；仓库内仅保留 `blacklist.txt.template`。
 
 ### 常用参数（`compare_chart_versions.py`）
 

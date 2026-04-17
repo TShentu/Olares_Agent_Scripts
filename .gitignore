@@ -197,6 +197,7 @@ cython_debug/
 # Local compare_chart secrets (copy from config.yaml.template)
 compare_chart/config.yaml
 compare_chart/github.txt
+compare_chart/blacklist.txt
 sync_chart/config.yaml
 sync_chart/github.txt
 

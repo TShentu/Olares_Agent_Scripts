@@ -6,6 +6,7 @@ git_branch: main
 
 # Blacklist file: one app directory name per line. Relative paths are resolved from
 # the directory containing this config file. Use "" to disable the blacklist.
+# Copy compare_chart/blacklist.txt.template to blacklist.txt (gitignored).
 blacklist: "blacklist.txt"
 
 prod:
