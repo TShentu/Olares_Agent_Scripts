@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 """
-Ensure prod/test local clones are on the configured branch (default main),
-sync forks with upstream when configured, then fast-forward to origin.
-
-Authentication: use ``GITHUB_TOKEN`` / ``GH_TOKEN`` (either spelling), optional
-``GITHUB_USERNAME`` / ``GH_USERNAME`` and ``GITHUB_EMAIL`` / ``GH_EMAIL`` in the
-environment, or ``GITHUB_TOKEN_FILE`` pointing to a file with the same key names
-(see ``parse_github_credentials_file``). ``GITHUB_*`` takes precedence over
-``GH_*`` when both are set.
-The caller (CI / wrapper) is responsible for injecting credentials — do not
-commit tokens in the repo.
+Git operations and GitHub credential helpers for sync_chart (standalone; no compare_chart).
 """
 
 from __future__ import annotations
@@ -23,16 +14,8 @@ from typing import Any, Optional
 
 import requests
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
-from compare_chart_versions import (
-    DEFAULT_CONFIG_PATH,
-    load_config,
-    resolve_roots,
-)
 from pat_url import github_authenticated_https_url
+from repo_config import DEFAULT_CONFIG_PATH, load_config, resolve_roots
 
 _GITHUB_EXTRAHEADER = "http.https://github.com/.extraheader"
 _GITHUB_API_ACCEPT = "application/vnd.github+json"
@@ -61,16 +44,7 @@ _CREDENTIAL_FILE_KEYS = frozenset(
 def parse_github_credentials_file(
     path: Path,
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
-    """Parse a credential file: ``KEY=value`` lines only (case-insensitive keys).
-
-    Keys (``GITHUB_*`` overrides ``GH_*`` if both are present):
-
-    - ``GITHUB_TOKEN`` / ``GH_TOKEN`` — PAT
-    - ``GITHUB_USERNAME`` / ``GH_USERNAME`` — optional (e.g. commit identity)
-    - ``GITHUB_EMAIL`` / ``GH_EMAIL`` — optional
-
-    Other lines are ignored.
-    """
+    """Parse a credential file: ``KEY=value`` lines only (case-insensitive keys)."""
     p = Path(path).expanduser()
     if not p.is_file():
         return None, None, None
@@ -100,7 +74,6 @@ def parse_github_credentials_file(
 
 
 def resolve_github_identity_from_env() -> tuple[Optional[str], Optional[str]]:
-    """Match :func:`parse_github_credentials_file` semantics for process environment."""
     u = os.environ.get("GITHUB_USERNAME") or os.environ.get("GH_USERNAME")
     e = os.environ.get("GITHUB_EMAIL") or os.environ.get("GH_EMAIL")
     u = u.strip() if isinstance(u, str) and u.strip() else None
@@ -109,7 +82,6 @@ def resolve_github_identity_from_env() -> tuple[Optional[str], Optional[str]]:
 
 
 def read_github_token_from_file(path: Path) -> Optional[str]:
-    """Return only the PAT from :func:`parse_github_credentials_file`."""
     t, _, _ = parse_github_credentials_file(path)
     return t
 
@@ -119,12 +91,6 @@ def resolve_github_token(
     *,
     token_file: Optional[Path] = None,
 ) -> Optional[str]:
-    """Return token from env (or file), or None if unset.
-
-    If ``token_file`` is set, only that file is read (see
-    :func:`parse_github_credentials_file`); environment variables and
-    ``GITHUB_TOKEN_FILE`` are ignored.
-    """
     if token_file is not None:
         return read_github_token_from_file(token_file)
     if env_var:
@@ -142,7 +108,7 @@ def resolve_github_token(
 
 
 def verify_github_token(token: str, *, timeout: float = 30.0) -> None:
-    """GET api.github.com/user; exit if the PAT is not accepted (aligned with sync_chart/git_sync)."""
+    """GET api.github.com/user; exit with error message if token is not valid."""
     r = requests.get(
         "https://api.github.com/user",
         headers={
@@ -166,11 +132,10 @@ def _strip_token(s: str) -> str:
 
 
 def _git_base(token: Optional[str]) -> list[str]:
-    # Empty helper: do not invoke osxkeychain / GCM interactive flows; use PAT from
-    # extraHeader or from URL (e.g. sync_chart push) only.
     cmd = ["git", "-c", "credential.helper="]
     if token:
-        # PAT + git/libcurl: prefer ``Authorization: token`` (see git_sync.py).
+        # GitHub PAT: use ``Authorization: token`` for git/libcurl HTTPS; ``bearer``
+        # can be rejected on some setups while ``curl``/REST with Bearer still returns 200.
         cmd.extend(
             [
                 "-c",
@@ -185,6 +150,7 @@ def run_git(
     *git_args: str,
     token: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
+    # PAT over HTTPS: embed in URL (oauth2:) — works cross-platform; extraHeader is flaky.
     if token and len(git_args) >= 2 and git_args[0] == "fetch":
         remote_name = git_args[1]
         rest = list(git_args[2:])
@@ -263,7 +229,6 @@ def checkout_branch(repo: Path, branch: str) -> None:
     cp = run_git(repo, "switch", branch, token=None)
     if cp.returncode == 0:
         return
-    # try create from origin
     cp2 = run_git(repo, "switch", "-C", branch, f"origin/{branch}", token=None)
     if cp2.returncode == 0:
         print(f"  已基于 origin/{branch} 创建并切换分支 {branch}")
@@ -303,7 +268,6 @@ def sync_one_repo(
         )
         sys.exit(1)
 
-    # Fetch origin first (fork / own remote)
     print("  git fetch origin …")
     must_ok(run_git(repo, "fetch", "origin", "--prune", token=token), "git fetch origin")
 
@@ -418,7 +382,7 @@ def main() -> None:
         "--config",
         type=Path,
         default=DEFAULT_CONFIG_PATH,
-        help="配置文件路径（默认: 当前目录下的 config.yaml）",
+        help=f"配置文件路径（默认: {DEFAULT_CONFIG_PATH}）",
     )
     parser.add_argument(
         "--branch",
@@ -434,17 +398,18 @@ def main() -> None:
         "--token-env",
         default=None,
         metavar="NAME",
-        help="从该环境变量或 GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN_FILE 读取 PAT；有 PAT 时先 API 校验",
+        help="仅从该环境变量读取 token（仍回退到 GITHUB_TOKEN_FILE）",
     )
     args = parser.parse_args()
 
-    cfg = load_config(args.config)
+    cfg_path = args.config
+    if not cfg_path.is_absolute():
+        cfg_path = (Path.cwd() / cfg_path).resolve()
+    cfg = load_config(cfg_path)
     token = resolve_github_token(args.token_env)
-    if token:
-        verify_github_token(token)
     sync_from_config(
         cfg,
-        args.config,
+        cfg_path,
         branch=args.branch,
         token=token,
         allow_dirty=args.allow_dirty,

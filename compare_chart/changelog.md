@@ -8,6 +8,23 @@
 
 <!-- 下一次发布前在此累积条目 -->
 
+### 认证与 Git（`sync_repos` / `compare_chart_versions`）
+
+- 新增 **`pat_url.py`**：从 `https://github.com/owner/repo` 生成带 PAT 的 HTTPS URL；`fetch` 默认使用 **`https://oauth2:<PAT>@github.com/...`** + refspec（跨平台、不依赖 macOS 钥匙串或 GCM 交互）。
+- 新增 **`verify_github_token`**（`requests`）：在同步前对 PAT 执行 **`GET https://api.github.com/user`**（`Authorization: token`）；`compare_chart_versions` 与 **`sync_repos.py` 独立入口**在解析到 token 时均会先校验再 `sync_from_config`。
+- **`requirements.txt`**：增加 **`requests>=2.28.0`**。
+
+### 根目录文档
+
+- **`README.md`**：补充 compare_chart / sync_chart 的 PAT 来源、`--token-env` 与 `--token-source file`、oauth2 嵌入策略及「file 模式不读环境 token」等说明。
+
+### sync_chart（同仓库，独立目录）
+
+- **`sync_chart`** 与 **`compare_chart`** 解耦：自有 **`repo_config.py`**、**`git_sync.py`**、**`pat_url.py`**；默认 **`config.yaml`** 为脚本所在目录。
+- **`sync_chart.py`**：`--token-source env|file`、`--token-file`；`fetch`/`push` 与上述 oauth2 策略一致；未 `--skip-sync` 时先 **`verify_github_token`**。
+
+### 其它（历史条目）
+
 - **黑名单**：仓库内移除已提交的 `blacklist.txt`，改为 `blacklist.txt.template`（仅说明格式）；本地 `blacklist.txt` 由用户复制生成并已加入根 `.gitignore`。
 - 默认配置文件改为**进程当前工作目录**下的 `config.yaml`（不再默认指向脚本目录）；`-h` 帮助文案改为相对路径说明，不再打印绝对路径。
 - 更新 **`README.md`**、**`skills.md`**：补充「当前工作目录」与默认 `config.yaml` 的关系、从仓库根调用时的 `-c` 写法，以及 `-h` / 辅助脚本说明。

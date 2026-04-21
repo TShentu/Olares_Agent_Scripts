@@ -316,16 +316,23 @@ def main() -> None:
         "--token-env",
         default=None,
         metavar="NAME",
-        help="同步时：仅从该环境变量读取 GitHub token（仍可使用 GITHUB_TOKEN_FILE）",
+        help="同步时：从该环境变量或 GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN_FILE 读取 PAT；"
+        "若解析到 PAT，会先调用 GitHub API 校验后再 fetch",
     )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
 
     if not args.skip_sync:
-        from sync_repos import resolve_github_token, sync_from_config
+        from sync_repos import (
+            resolve_github_token,
+            sync_from_config,
+            verify_github_token,
+        )
 
         token = resolve_github_token(args.token_env)
+        if token:
+            verify_github_token(token)
         sync_from_config(
             cfg,
             args.config,

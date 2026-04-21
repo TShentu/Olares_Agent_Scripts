@@ -1,7 +1,7 @@
 # Copy this file to config.yaml and set your real paths and URLs.
 # config.yaml is gitignored — do not commit secrets or internal paths.
 
-# Branch to checkout when using sync_repos.py or compare_chart_versions.py (sync is default)
+# Branch to checkout when using git_sync.py / sync_chart.py or compare_chart_versions.py
 git_branch: main
 
 # Blacklist file: one app directory name per line. Relative paths are resolved from

@@ -2,12 +2,19 @@
 """
 将 test 仓库中的应用目录同步到 prod 仓库，并向 prod 的 upstream 提交草稿 PR。
 
-流程：先与 compare_chart 相同地 fetch/合并 upstream 与 origin；再从 test 的 local_path
-复制指定 chart 目录到 prod 的 local_path；在 prod 克隆上建分支、提交、推送，并对
-upstream 仓库创建 PR（格式参考 Scripts/GithubSync/sync_folders.py）。
+流程（默认始终执行）：先对配置中的 prod / test 本地克隆调用 ``git_sync.sync_from_config``，
+即 fetch origin、fetch upstream（若已配置）、合并 upstream 与 origin 到当前分支，使 fork
+与 upstream 对齐；再从 test 的 local_path 复制指定 chart 目录到 prod 的 local_path；
+在 prod 克隆上建分支、提交、推送，并对 upstream 仓库创建草稿 PR。
+仅当显式传入 ``--skip-sync`` 时跳过上述 fork 同步，直接使用本地目录当前内容进行复制与提交
+（用于已手动对齐仓库等场景）。
 批量模式：``--batch charts.txt``，文件中每行一个 chart 名，``#`` 开头为注释。
 
-认证：GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN_FILE（与 compare_chart/sync_repos 一致）。
+认证：凭证键与 ``git_sync.parse_github_credentials_file`` 一致——
+``GITHUB_TOKEN`` / ``GH_TOKEN``，``GITHUB_USERNAME`` / ``GH_USERNAME``，
+``GITHUB_EMAIL`` / ``GH_EMAIL``（``GITHUB_*`` 优先于 ``GH_*``）。
+环境变量与 ``--token-source file`` 文件用法相同；env 模式下另支持 ``GITHUB_TOKEN_FILE``、
+``--token-env``。
 """
 
 from __future__ import annotations
@@ -26,18 +33,20 @@ from typing import Any, Optional
 import requests
 import yaml
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _SCRIPT_DIR.parent
-_COMPARE_CHART = _REPO_ROOT / "compare_chart"
-if str(_COMPARE_CHART) not in sys.path:
-    sys.path.insert(0, str(_COMPARE_CHART))
-
-from compare_chart_versions import (  # noqa: E402
+from repo_config import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
     load_config,
     resolve_roots,
 )
-from sync_repos import resolve_github_token, sync_from_config  # noqa: E402
+from git_sync import (  # noqa: E402
+    parse_github_credentials_file,
+    resolve_github_identity_from_env,
+    resolve_github_token,
+    run_git,
+    sync_from_config,
+    verify_github_token,
+)
+from pat_url import github_authenticated_https_url  # noqa: E402
 
 _GITHUB_API_ACCEPT = "application/vnd.github.v3+json"
 
@@ -50,15 +59,6 @@ def _must_ok(cp: subprocess.CompletedProcess[str], what: str) -> None:
         if cp.stderr:
             print(cp.stderr, file=sys.stderr)
         sys.exit(1)
-
-
-def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
 
 
 def parse_github_owner_repo(url: str) -> tuple[str, str]:
@@ -117,7 +117,7 @@ def chart_exists_upstream(
     prod_repo: Path, branch: str, chart_name: str
 ) -> bool:
     ref = f"upstream/{branch}"
-    cp = _run_git(prod_repo, "ls-tree", "-d", "--name-only", ref, chart_name)
+    cp = run_git(prod_repo, "ls-tree", "-d", "--name-only", ref, chart_name, token=None)
     return cp.returncode == 0 and bool((cp.stdout or "").strip())
 
 
@@ -140,27 +140,50 @@ def copy_chart_tree(source: Path, dest: Path) -> None:
 
 
 def has_git_changes(repo: Path) -> bool:
-    cp = _run_git(repo, "status", "--porcelain")
+    cp = run_git(repo, "status", "--porcelain", token=None)
     return bool((cp.stdout or "").strip())
 
 
-def ensure_commit_identity(repo: Path) -> None:
-    """Use local repo config if set; else optional env GIT_AUTHOR_*."""
-    name_cp = _run_git(repo, "config", "user.name")
-    email_cp = _run_git(repo, "config", "user.email")
+def ensure_commit_identity(
+    repo: Path,
+    *,
+    fallback_name: Optional[str] = None,
+    fallback_email: Optional[str] = None,
+) -> None:
+    """Use local repo config if set; else GIT_AUTHOR_*; else credentials-file fallbacks."""
+    name_cp = run_git(repo, "config", "user.name", token=None)
+    email_cp = run_git(repo, "config", "user.email", token=None)
     if (name_cp.stdout or "").strip() and (email_cp.stdout or "").strip():
         return
     name = os.environ.get("GIT_AUTHOR_NAME", "").strip()
     email = os.environ.get("GIT_AUTHOR_EMAIL", "").strip()
     if name and email:
-        _must_ok(_run_git(repo, "config", "user.name", name), "git config user.name")
         _must_ok(
-            _run_git(repo, "config", "user.email", email), "git config user.email"
+            run_git(repo, "config", "user.name", name, token=None),
+            "git config user.name",
+        )
+        _must_ok(
+            run_git(repo, "config", "user.email", email, token=None),
+            "git config user.email",
+        )
+        return
+    fn = (fallback_name or "").strip()
+    fe = (fallback_email or "").strip()
+    if fn and fe:
+        _must_ok(
+            run_git(repo, "config", "user.name", fn, token=None),
+            "git config user.name",
+        )
+        _must_ok(
+            run_git(repo, "config", "user.email", fe, token=None),
+            "git config user.email",
         )
         return
     print(
         "错误: 请在 prod 仓库中配置 git user.name / user.email，"
-        "或设置环境变量 GIT_AUTHOR_NAME 与 GIT_AUTHOR_EMAIL。",
+        "或设置 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL，"
+        "或在凭证文件 / 环境中提供 GITHUB_USERNAME 或 GH_USERNAME，以及 "
+        "GITHUB_EMAIL 或 GH_EMAIL。",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -175,10 +198,17 @@ def push_branch_fork(
     fork_repo: str,
 ) -> bool:
     if token:
-        url = f"https://{token}@github.com/{fork_owner}/{fork_repo}.git"
-        cp = _run_git(prod_repo, "push", url, branch)
+        url = github_authenticated_https_url(
+            f"https://github.com/{fork_owner}/{fork_repo}.git",
+            token,
+            style="oauth2",
+        )
+        if not url:
+            print("错误: 无法构建带 PAT 的 push URL（需为 github.com HTTPS）", file=sys.stderr)
+            return False
+        cp = run_git(prod_repo, "push", url, branch, token=None)
     else:
-        cp = _run_git(prod_repo, "push", "origin", branch)
+        cp = run_git(prod_repo, "push", "origin", branch, token=None)
     if cp.returncode != 0:
         if cp.stderr:
             print(cp.stderr, file=sys.stderr)
@@ -236,6 +266,8 @@ def sync_one_chart(
     token: Optional[str],
     optional_title: Optional[str],
     allow_dirty: bool,
+    commit_author_name: Optional[str] = None,
+    commit_author_email: Optional[str] = None,
 ) -> tuple[bool, Optional[str], Optional[str]]:
     """
     Returns (success, pr_url_or_none_if_skipped, error_message).
@@ -260,7 +292,10 @@ def sync_one_chart(
     fork_owner, fork_repo = parse_github_owner_repo(prod_gh)
 
     # Ensure on configured branch before copy (sync_from_config already checked out)
-    _must_ok(_run_git(prod_repo, "switch", branch), f"git switch {branch}")
+    _must_ok(
+        run_git(prod_repo, "switch", branch, token=None),
+        f"git switch {branch}",
+    )
 
     copy_chart_tree(test_folder, prod_root / chart_name)
 
@@ -274,29 +309,34 @@ def sync_one_chart(
     sync_branch = f"sync-{chart_name}-{ts}"
 
     _must_ok(
-        _run_git(prod_repo, "switch", "-c", sync_branch),
+        run_git(prod_repo, "switch", "-c", sync_branch, token=None),
         f"创建分支 {sync_branch}",
     )
 
-    ensure_commit_identity(prod_repo)
+    ensure_commit_identity(
+        prod_repo,
+        fallback_name=commit_author_name,
+        fallback_email=commit_author_email,
+    )
     title_core = f"[{pr_type}][{chart_name}][{version}]"
     if optional_title and optional_title.strip():
         commit_title = f"{title_core} {optional_title.strip()}"
     else:
         commit_title = title_core
 
-    _must_ok(_run_git(prod_repo, "add", "--", chart_name), "git add")
-    cp_commit = _run_git(prod_repo, "commit", "-m", commit_title)
+    _must_ok(run_git(prod_repo, "add", "--", chart_name, token=None), "git add")
+    cp_commit = run_git(prod_repo, "commit", "-m", commit_title, token=None)
     if cp_commit.returncode != 0:
-        _run_git(prod_repo, "switch", branch)
+        run_git(prod_repo, "switch", branch, token=None)
         return False, None, "git commit 失败"
 
     if not token:
         print(
-            "错误: 未设置 GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN_FILE，无法推送或创建 PR。",
+            "错误: 未配置 GitHub token（env：GITHUB_TOKEN/GH_TOKEN 或 GITHUB_TOKEN_FILE；"
+            "或 --token-source file --token-file PATH），无法推送或创建 PR。",
             file=sys.stderr,
         )
-        _run_git(prod_repo, "switch", branch)
+        run_git(prod_repo, "switch", branch, token=None)
         return False, None, "缺少 token"
 
     if not push_branch_fork(
@@ -306,7 +346,7 @@ def sync_one_chart(
         fork_owner=fork_owner,
         fork_repo=fork_repo,
     ):
-        _run_git(prod_repo, "switch", branch)
+        run_git(prod_repo, "switch", branch, token=None)
         return False, None, "git push 失败"
 
     pr_title = commit_title
@@ -323,10 +363,13 @@ def sync_one_chart(
             body=body,
         )
     except Exception as e:
-        _run_git(prod_repo, "switch", branch)
+        run_git(prod_repo, "switch", branch, token=None)
         return False, None, f"创建 PR 失败: {e}"
 
-    _must_ok(_run_git(prod_repo, "switch", branch), f"回到 {branch}")
+    _must_ok(
+        run_git(prod_repo, "switch", branch, token=None),
+        f"回到 {branch}",
+    )
     print(f"  {chart_name}: PR {url}")
     return True, url, None
 
@@ -335,7 +378,7 @@ def _git_toplevel(start: Path) -> Path:
     p = start.resolve()
     if p.is_file():
         p = p.parent
-    cp = _run_git(p, "rev-parse", "--show-toplevel")
+    cp = run_git(p, "rev-parse", "--show-toplevel", token=None)
     if cp.returncode != 0:
         print(f"错误: 不是 git 仓库: {start}", file=sys.stderr)
         sys.exit(1)
@@ -351,7 +394,7 @@ def main() -> None:
         "--config",
         type=Path,
         default=DEFAULT_CONFIG_PATH,
-        help="配置文件路径（默认: 当前目录下的 config.yaml）",
+        help="配置文件路径（默认: 脚本所在目录下的 config.yaml）",
     )
     parser.add_argument(
         "chart",
@@ -385,17 +428,39 @@ def main() -> None:
         help="允许 prod 工作区有未提交更改时仍继续",
     )
     parser.add_argument(
+        "--token-source",
+        choices=("env", "file"),
+        default="env",
+        metavar="MODE",
+        help="token 来源：env（默认，环境变量）或 file（需配合 --token-file）",
+    )
+    parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="--token-source file 时读取凭证文件（GITHUB_* 与 GH_* 两套键名，语义与 env 一致）",
+    )
+    parser.add_argument(
         "--token-env",
         default=None,
         metavar="NAME",
-        help="仅从该环境变量读取 token（仍可使用 GITHUB_TOKEN_FILE）",
+        help="仅在 --token-source env 时生效：优先从该环境变量读取，其次 GITHUB_TOKEN / GH_TOKEN，"
+        "仍可使用环境变量 GITHUB_TOKEN_FILE 指向文件",
     )
     parser.add_argument(
-        "--skip-preflight",
+        "--skip-sync",
         action="store_true",
-        help="跳过 fetch upstream / 合并（仅用于调试；默认会先同步两 fork）",
+        dest="skip_sync",
+        help="跳过 fork 同步（不 fetch/合并 upstream 与 origin），直接使用本地 prod/test 数据提交",
     )
     args = parser.parse_args()
+
+    if args.token_source == "file":
+        if args.token_file is None:
+            parser.error("--token-source file 需要 --token-file PATH")
+    elif args.token_file is not None:
+        parser.error("使用 --token-file 时请指定 --token-source file")
 
     if args.batch_file is not None and args.chart is not None:
         parser.error("不能同时指定单个 CHART 与 --batch")
@@ -420,8 +485,40 @@ def main() -> None:
     cfg = load_config(cfg_path)
     branch = args.branch or resolve_branch(cfg)
 
-    if not args.skip_preflight:
+    commit_author_name: Optional[str] = None
+    commit_author_email: Optional[str] = None
+    if args.token_source == "file":
+        assert args.token_file is not None
+        tf = args.token_file
+        if not tf.is_absolute():
+            tf = (Path.cwd() / tf).resolve()
+        if not tf.is_file():
+            print(f"错误: token 文件不存在: {tf}", file=sys.stderr)
+            sys.exit(1)
+        token, commit_author_name, commit_author_email = parse_github_credentials_file(
+            tf
+        )
+        if not token:
+            print(
+                "错误: 未能从 --token-file 解析出 GITHUB_TOKEN 或 GH_TOKEN。\n"
+                "请在文件中至少包含一行：GITHUB_TOKEN=... 或 GH_TOKEN=...（可选用户名/邮箱键同上）。",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
         token = resolve_github_token(args.token_env)
+        commit_author_name, commit_author_email = resolve_github_identity_from_env()
+
+    if not args.skip_sync:
+        if not token:
+            print(
+                "错误: fork 同步需要有效的 GitHub token。"
+                "请设置 GITHUB_TOKEN / GH_TOKEN、GITHUB_TOKEN_FILE，"
+                "或使用 --token-source file --token-file ...",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        verify_github_token(token)
         sync_from_config(
             cfg,
             cfg_path,
@@ -430,8 +527,11 @@ def main() -> None:
             allow_dirty=args.allow_dirty,
         )
         print()
-
-    token = resolve_github_token(args.token_env)
+    else:
+        print(
+            "已跳过 fork 同步（--skip-sync），将使用本地 prod/test 目录当前内容。",
+            file=sys.stderr,
+        )
 
     failed: list[tuple[str, str]] = []
     for i, name in enumerate(charts):
@@ -443,6 +543,8 @@ def main() -> None:
             token=token,
             optional_title=args.title,
             allow_dirty=args.allow_dirty,
+            commit_author_name=commit_author_name,
+            commit_author_email=commit_author_email,
         )
         if not ok:
             failed.append((name, err or "unknown"))
