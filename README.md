@@ -99,11 +99,13 @@
 
 ---
 
-## `sync_fork/` — 定时同步 4 个 fork repo 到上游 main
+## `sync_fork/` — 同步 fork repo 到上游 main
 
 ### 用途
 
-每天定时将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游保持一致。
+将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游最新 main 完全一致。
+
+**定时调度** 由 OpenClaw cron 管理（北京时间每天 03:00），不在脚本内实现。
 
 ### 配置
 
@@ -115,23 +117,20 @@ cp sync_fork/config.yaml.template sync_fork/config.yaml
 
 编辑 `config.yaml` 中的 `repos` 列表即可增删 repo。
 
-
-### 核心命令（手动执行）
-
+### 核心命令（脚本内部逻辑）
 
 ```bash
-cd <repo-path>
+# 每个 repo 执行：
 git fetch upstream
 git checkout main
-git reset --hard upstream/main
+git reset --hard upstream/main   # 直接丢弃 diverged commits
 git push --force origin main
 ```
-
 
 ### 用法
 
 ```bash
-# Dry run（只检查状态，不执行）
+# Dry run（只检查状态，不执行 push）
 python3 sync_fork.py --dry-run
 
 # 正式执行
@@ -140,14 +139,15 @@ python3 sync_fork.py
 
 ### 注意事项
 
-- **diverged commits 直接丢弃**：执行 `reset --hard`，不尝试 merge
+- **diverged commits 直接丢弃**：`reset --hard` 不做 merge，直接以 upstream/main 为准
 - **PAT 需要 `repo` scope**：用于 force push
 - **config.yaml gitignored**：`config.yaml` 不提交，仅 `config.yaml.template` 入库
-- **定时任务**：北京时间每天 03:00 执行，结果会发飞书通知到 Terminus Application Review 群
+- **定时任务**：由 OpenClaw cron 自动化（北京时间每天 03:00），调用本脚本执行
 
-### 脚本路径
+### Agent Skill
 
-`/home/userdata/home/Code/Olares_Project/Olares_Agent_Scripts/sync_fork/sync_fork.py`
+其他 Agent 可通过 skill `sync-fork` 调用，详见：
+`~/.openclaw/workspace/skills/sync-fork/SKILL.md`
 
 ---
 
