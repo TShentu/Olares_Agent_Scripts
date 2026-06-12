@@ -99,6 +99,58 @@
 
 ---
 
+## `sync_fork/` — 同步 fork repo 到上游 main
+
+### 用途
+
+将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游最新 main 完全一致。
+
+**定时调度** 由 OpenClaw cron 管理（北京时间每天 03:00），不在脚本内实现。
+
+### 配置
+
+Repo 列表通过 `sync_fork/config.yaml` 配置（从 `config.yaml.template` 复制，gitignored）：
+
+```bash
+cp sync_fork/config.yaml.template sync_fork/config.yaml
+```
+
+编辑 `config.yaml` 中的 `repos` 列表即可增删 repo。
+
+### 核心命令（脚本内部逻辑）
+
+```bash
+# 每个 repo 执行：
+git fetch upstream
+git checkout main
+git reset --hard upstream/main   # 直接丢弃 diverged commits
+git push --force origin main
+```
+
+### 用法
+
+```bash
+# Dry run（只检查状态，不执行 push）
+python3 sync_fork.py --dry-run
+
+# 正式执行
+python3 sync_fork.py
+```
+
+### 注意事项
+
+- **diverged commits 直接丢弃**：`reset --hard` 不做 merge，直接以 upstream/main 为准
+- **PAT 需要 `repo` scope**：用于 force push
+- **config.yaml gitignored**：`config.yaml` 不提交，仅 `config.yaml.template` 入库
+- **定时任务**：由 OpenClaw cron 自动化（北京时间每天 03:00），调用本脚本执行
+
+### Agent Skill
+
+其他 Agent 可通过 skill `sync-fork` 调用，详见：
+`~/.openclaw/workspace/skills/sync-fork/SKILL.md`
+
+---
+
 ## 许可证
 
 若仓库根目录未单独声明许可证，以仓库所有者配置为准。
