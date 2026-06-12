@@ -99,6 +99,55 @@
 
 ---
 
+## `sync_fork/` — 定时同步 4 个 fork repo 到上游 main
+
+### 用途
+
+每天定时将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游保持一致。
+
+### 涉及的 repo
+
+| repo | 路径 |
+|------|------|
+| static | `/home/userdata/home/Code/Olares_Project/static` |
+| Olares | `/home/userdata/home/Code/Olares_Project/Olares` |
+| apps | `/home/userdata/home/Code/Olares_Project/apps` |
+| terminus-apps | `/home/userdata/home/Code/Olares_Project/terminus-apps` |
+
+
+### 核心命令（手动执行）
+
+```bash
+cd <repo-path>
+git fetch upstream
+git checkout main
+git reset --hard upstream/main
+git push --force origin main
+```
+
+### 用法
+
+```bash
+# Dry run（只检查状态，不执行）
+python3 sync_fork.py --dry-run
+
+# 正式执行
+python3 sync_fork.py
+```
+
+### 注意事项
+
+- **diverged commits 直接丢弃**：执行 `reset --hard`，不尝试 merge
+- **PAT 需要 `repo` scope**：用于 force push
+- **工作目录固定**：脚本内硬编码了 4 个 repo 的本地路径，不支持自定义配置
+- **定时任务**：北京时间每天 03:00 执行，结果会发飞书通知到 Terminus Application Review 群
+
+### 脚本路径
+
+`/home/userdata/home/Code/Olares_Project/Olares_Agent_Scripts/sync_fork/sync_fork.py`
+
+---
+
 ## 许可证
 
 若仓库根目录未单独声明许可证，以仓库所有者配置为准。
