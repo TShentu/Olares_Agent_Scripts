@@ -1,4 +1,17 @@
-# sync_fork
+---
+name: sync-fork
+description: "Sync 4 fork repos (static/Olares/apps/terminus-apps) to upstream main by resetting and force-pushing. Drops any diverged commits."
+user-invocable: true
+metadata:
+  openclaw:
+    requires:
+      bins:
+        - python3
+        - git
+    primaryEnv: GITHUB_TOKEN
+---
+
+# sync-fork
 
 将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游最新 main 完全一致。
 
