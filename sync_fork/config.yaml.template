@@ -1,0 +1,17 @@
+# sync_fork configuration
+# Copy this file to config.yaml and fill in your local repo paths.
+# config.yaml is gitignored — never commit actual paths.
+
+repos:
+  - name: static
+    path: /home/userdata/home/Code/Olares_Project/static
+    upstream_branch: upstream/main
+  - name: Olares
+    path: /home/userdata/home/Code/Olares_Project/Olares
+    upstream_branch: upstream/main
+  - name: apps
+    path: /home/userdata/home/Code/Olares_Project/apps
+    upstream_branch: upstream/main
+  - name: terminus-apps
+    path: /home/userdata/home/Code/Olares_Project/terminus-apps
+    upstream_branch: upstream/main

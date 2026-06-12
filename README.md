@@ -105,17 +105,19 @@
 
 每天定时将 **4 个 fork repo** 的 `main` 分支同步到 **upstream/main**，丢弃任何 diverged commits，确保 fork 始终和上游保持一致。
 
-### 涉及的 repo
+### 配置
 
-| repo | 路径 |
-|------|------|
-| static | `/home/userdata/home/Code/Olares_Project/static` |
-| Olares | `/home/userdata/home/Code/Olares_Project/Olares` |
-| apps | `/home/userdata/home/Code/Olares_Project/apps` |
-| terminus-apps | `/home/userdata/home/Code/Olares_Project/terminus-apps` |
+Repo 列表通过 `sync_fork/config.yaml` 配置（从 `config.yaml.template` 复制，gitignored）：
+
+```bash
+cp sync_fork/config.yaml.template sync_fork/config.yaml
+```
+
+编辑 `config.yaml` 中的 `repos` 列表即可增删 repo。
 
 
 ### 核心命令（手动执行）
+
 
 ```bash
 cd <repo-path>
@@ -124,6 +126,7 @@ git checkout main
 git reset --hard upstream/main
 git push --force origin main
 ```
+
 
 ### 用法
 
@@ -139,7 +142,7 @@ python3 sync_fork.py
 
 - **diverged commits 直接丢弃**：执行 `reset --hard`，不尝试 merge
 - **PAT 需要 `repo` scope**：用于 force push
-- **工作目录固定**：脚本内硬编码了 4 个 repo 的本地路径，不支持自定义配置
+- **config.yaml gitignored**：`config.yaml` 不提交，仅 `config.yaml.template` 入库
 - **定时任务**：北京时间每天 03:00 执行，结果会发飞书通知到 Terminus Application Review 群
 
 ### 脚本路径

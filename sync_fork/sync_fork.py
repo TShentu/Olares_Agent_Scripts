@@ -2,36 +2,18 @@
 """
 Sync fork repos with upstream main.
 Drops any diverged commits on fork main (force push to match upstream).
+
+Configuration: sync_fork/config.yaml (gitignored, copy from config.yaml.template)
 Usage: python3 sync_fork.py [--dry-run]
 """
 
 import subprocess
 import sys
-import re
+import yaml
 from pathlib import Path
 
-REPOS = [
-    {
-        "name": "static",
-        "path": "/home/userdata/home/Code/Olares_Project/static",
-        "upstream_branch": "upstream/main",
-    },
-    {
-        "name": "Olares",
-        "path": "/home/userdata/home/Code/Olares_Project/Olares",
-        "upstream_branch": "upstream/main",
-    },
-    {
-        "name": "apps",
-        "path": "/home/userdata/home/Code/Olares_Project/apps",
-        "upstream_branch": "upstream/main",
-    },
-    {
-        "name": "terminus-apps",
-        "path": "/home/userdata/home/Code/Olares_Project/terminus-apps",
-        "upstream_branch": "upstream/main",
-    },
-]
+SCRIPT_DIR = Path(__file__).parent
+DEFAULT_CONFIG = SCRIPT_DIR / "config.yaml"
 
 
 def run(cmd, cwd=None, capture=True):
@@ -45,6 +27,13 @@ def get_current_commit(repo_path, branch):
     """Get current commit hash for a branch."""
     result = run(f"git rev-parse {branch}", cwd=repo_path)
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def load_repos(config_path):
+    """Load repos configuration from YAML file."""
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    return config.get("repos", [])
 
 
 def sync_repo(repo):
@@ -83,7 +72,6 @@ def sync_repo(repo):
         return True, "already in sync"
 
     # Check for diverged commits (fork ahead of upstream)
-    # Use git rev-list to count commits fork main is ahead of upstream
     result = run(
         f"git rev-list --count {upstream_branch}..origin/main",
         cwd=path
@@ -94,9 +82,9 @@ def sync_repo(repo):
 
     # Reset fork main to upstream
     print(f"  Resetting fork main to {upstream_branch}...")
-    result = run(f"git reset --hard {upstream_branch}", cwd=path)
+    result = run(f"git checkout main && git reset --hard {upstream_branch}", cwd=path)
     if result.returncode != 0:
-        print(f"  [ERROR] git reset failed: {result.stderr}")
+        print(f"  [ERROR] git checkout/reset failed: {result.stderr}")
         return False, result.stderr
 
     # Force push to origin
@@ -114,11 +102,23 @@ def sync_repo(repo):
 def main():
     dry_run = "--dry-run" in sys.argv
 
+    # Load config
+    config_path = DEFAULT_CONFIG
+    if not config_path.exists():
+        print(f"[ERROR] Config file not found: {config_path}")
+        print(f"  Please copy config.yaml.template to config.yaml and edit it.")
+        sys.exit(1)
+
+    repos = load_repos(config_path)
+    if not repos:
+        print(f"[ERROR] No repos configured in {config_path}")
+        sys.exit(1)
+
     print(f"=== Fork Sync {'(DRY RUN)' if dry_run else ''} ===")
-    print(f"Repos: {[r['name'] for r in REPOS]}")
+    print(f"Repos: {[r['name'] for r in repos]}")
 
     results = {}
-    for repo in REPOS:
+    for repo in repos:
         success, detail = sync_repo(repo)
         results[repo["name"]] = {"success": success, "detail": detail}
 

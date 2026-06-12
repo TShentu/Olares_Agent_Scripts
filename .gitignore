@@ -200,6 +200,7 @@ compare_chart/github.txt
 compare_chart/blacklist.txt
 sync_chart/config.yaml
 sync_chart/github.txt
+sync_fork/config.yaml
 
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
