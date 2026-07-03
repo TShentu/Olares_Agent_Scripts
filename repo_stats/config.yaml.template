@@ -1,0 +1,25 @@
+# Copy this file to config.yaml and set your real paths and URLs.
+# config.yaml is gitignored — do not commit secrets or internal paths.
+
+# Olares OS versions to analyze (inclusive range from 1.12.3 onward).
+os_versions:
+  - "1.12.3"
+  - "1.12.4"
+  - "1.12.5"
+  - "1.12.6"
+
+# One or more app repositories. Each entry needs a unique name, remote URL,
+# local clone path, and git branch.
+repos:
+  - name: apps-origin
+    remote_url: "https://github.com/beclab/apps"
+    local_path: "/absolute/path/to/apps-origin"
+    git_branch: main
+
+# Per-repo visibility overrides applied after dependency-based visibility.
+# Matching OS versions get visibility=false (stats still exclude suspend/remove).
+filters:
+  - name: apps-origin
+    blacklist:
+      - appName: acestepv2
+        versionConstraint: ">=1.12.3-0"
