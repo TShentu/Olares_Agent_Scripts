@@ -112,7 +112,9 @@ def preprocess_repo(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="预处理 app 仓库，生成各应用在不同 OS 版本下的可用性结构化文件。"
+        description="预处理 app 仓库，生成各应用在不同 OS 版本下的可用性结构化文件。",
+        epilog="不传任何参数时，默认处理 config.yaml 中 repos 列表里的全部仓库。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "-c",
@@ -161,9 +163,13 @@ def main() -> None:
     print(f"OS 版本: {', '.join(os_versions)}")
     print(f"输出目录: {output_dir}")
 
-    for repo in repos:
-        if selected and repo["name"] not in selected:
-            continue
+    to_run = [r for r in repos if not selected or r["name"] in selected]
+    if selected:
+        print(f"指定 repo: {', '.join(r['name'] for r in to_run)}")
+    else:
+        print(f"默认处理全部 repo: {', '.join(r['name'] for r in to_run)}")
+
+    for repo in to_run:
         print(f"处理仓库: {repo['name']} ({repo['local_path']})")
         bl = filters_by_repo.get(repo["name"], [])
         if bl:

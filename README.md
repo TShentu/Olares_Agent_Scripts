@@ -151,6 +151,63 @@ python3 sync_fork.py
 
 ---
 
+## `repo_stats/` — 应用仓库 OS 版本 / 架构可用性统计
+
+### 用途
+
+对 Olares **app 仓库**（如 [beclab/apps](https://github.com/beclab/apps)）做两类产出：
+
+1. **预处理**（`preprocess_repo.py`）：按每个应用的 `OlaresManifest.yaml` **git 历史**，计算其在各 **OS 版本**下的 `visibility`、`chart_version`、`supportarch`，以及当前 `status`（`normal` / `suspend` / `remove`）；支持按 repo 配置 **filters 屏蔽**。
+2. **统计**（`repo_stats.py`）：汇总各 OS 版本 × 架构（**amd64** / **arm64**）的**有效应用数量**，并标注统计所依据的 **commit sha**。
+
+### 用法
+
+1. 复制配置并填写本地 clone 路径与远端 URL：
+
+   ```bash
+   cp repo_stats/config.yaml.template repo_stats/config.yaml
+   ```
+
+2. 在 **`repo_stats` 目录下**执行：
+
+   ```bash
+   cd repo_stats
+   pip install -r requirements.txt
+   python3 preprocess_repo.py              # 生成结构化 YAML
+   python3 repo_stats.py                     # 生成统计表
+   python3 preprocess_repo.py --repo apps-origin   # 仅处理单个 repo
+   python3 repo_stats.py --repo apps-origin
+   ```
+
+3. 输出位置（默认）：
+
+   ```text
+   repo_stats/output/{repo_name}/
+   ├── all_apps.yaml
+   ├── stats_table.md
+   ├── stats_table.csv
+   └── appdata/{appname}.yaml
+   ```
+
+### 统计口径（有效应用）
+
+计入表格需同时满足：`status=normal`、`visibility=true`、`chart_version` 非 `empty`、`supportarch` 含对应架构。`suspend` / `remove` 应用可出现在结构化文件中，但**不计入**统计。
+
+`visibility` 由依赖历史决定；`filters.blacklist` 可在配置里对指定 `appName` + `versionConstraint` 强制 `visibility=false`（语法同 Helm 版本约束，如 `>=1.12.3-0`）。
+
+### 注意事项
+
+- **工作目录**：未指定 `-c` 时读取 **当前目录**下的 `config.yaml`；建议在 `repo_stats/` 下执行。
+- **本地路径**：`repos[].local_path` 必须是已存在的 **git 仓库**；脚本不会 clone 或 fetch。
+- **git 分支**：`repos[].git_branch` 写入元数据；预处理使用**当前 checkout** 的内容与 HEAD commit。
+- **忽略文件**：`repo_stats/config.yaml`、`repo_stats/output/` 已 gitignore，勿提交。
+
+### Agent Skill
+
+其他 Agent 操作说明见 **`repo_stats/skills.md`**（触发示例：`!preprocess_repo`、`!repo_stats`）。
+
+---
+
 ## 许可证
 
 若仓库根目录未单独声明许可证，以仓库所有者配置为准。

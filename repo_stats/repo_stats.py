@@ -195,7 +195,9 @@ def run_stats_for_repo(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="从结构化可用性文件统计各 OS 版本、各架构下的有效应用数量。"
+        description="从结构化可用性文件统计各 OS 版本、各架构下的有效应用数量。",
+        epilog="不传任何参数时，默认统计 config.yaml 中 repos 列表里的全部仓库。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "-c",
@@ -252,9 +254,13 @@ def main() -> None:
             print(f"错误: 配置中未找到 repo: {', '.join(sorted(unknown))}", file=sys.stderr)
             sys.exit(1)
 
-    for repo in repos:
-        if selected and repo["name"] not in selected:
-            continue
+    to_run = [r for r in repos if not selected or r["name"] in selected]
+    if selected:
+        print(f"指定 repo: {', '.join(r['name'] for r in to_run)}")
+    else:
+        print(f"默认统计全部 repo: {', '.join(r['name'] for r in to_run)}")
+
+    for repo in to_run:
         print(f"统计仓库: {repo['name']}")
         run_stats_for_repo(repo["name"], input_dir, output_dir, os_versions)
 
