@@ -9,12 +9,16 @@
 仅当显式传入 ``--skip-sync`` 时跳过上述 fork 同步，直接使用本地目录当前内容进行复制与提交
 （用于已手动对齐仓库等场景）。
 批量模式：``--batch charts.txt``，文件中每行一个 chart 名，``#`` 开头为注释。
+非 TTY（Agent exec）下批量任务会 **detach 到后台** 并立刻返回 ``job_id``，避免调用超时；
+用 ``--status [JOB_ID]`` 查询进度。已有任务在运行时，新提交会直接失败；可用
+``--cancel`` 中断当前任务后再提交（用于插队）。人类在终端运行时默认仍前台执行；
+``--detach`` / ``--foreground`` 可强制。
 
 认证：凭证键与 ``git_sync.parse_github_credentials_file`` 一致——
 ``GITHUB_TOKEN`` / ``GH_TOKEN``，``GITHUB_USERNAME`` / ``GH_USERNAME``，
 ``GITHUB_EMAIL`` / ``GH_EMAIL``（``GITHUB_*`` 优先于 ``GH_*``）。
-环境变量与 ``--token-source file`` 文件用法相同；env 模式下另支持 ``GITHUB_TOKEN_FILE``、
-``--token-env``。
+默认从环境变量读取 PAT；传入 ``--token-file`` 时改为只读该文件。env 模式另支持
+``GITHUB_TOKEN_FILE``、``--token-env``。
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -47,18 +52,51 @@ from git_sync import (  # noqa: E402
     verify_github_token,
 )
 from pat_url import github_authenticated_https_url  # noqa: E402
+from job_util import (  # noqa: E402
+    RepoLock,
+    cmd_cancel,
+    cmd_status,
+    configure_stdio,
+    create_job,
+    find_active_job,
+    load_status,
+    print_busy_error,
+    print_detach_banner,
+    save_status,
+    spawn_detached_worker,
+    utc_now_iso,
+)
 
 _GITHUB_API_ACCEPT = "application/vnd.github.v3+json"
+_PR_INTERVAL_SEC = 1.0
+_SCRIPT_PATH = Path(__file__).resolve()
+_STOP_REQUESTED = False
 
 
 def _must_ok(cp: subprocess.CompletedProcess[str], what: str) -> None:
-    if cp.returncode != 0:
-        print(f"错误: {what}", file=sys.stderr)
-        if cp.stdout:
-            print(cp.stdout, file=sys.stderr)
-        if cp.stderr:
-            print(cp.stderr, file=sys.stderr)
+    err = _git_err(cp, what)
+    if err:
+        print(f"错误: {err}", file=sys.stderr)
         sys.exit(1)
+
+
+def _git_err(cp: subprocess.CompletedProcess[str], what: str) -> Optional[str]:
+    if cp.returncode == 0:
+        return None
+    parts = [what]
+    for blob in (cp.stderr, cp.stdout):
+        text = (blob or "").strip()
+        if text:
+            parts.append(text)
+    return ": ".join(parts)
+
+
+def _flush() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
 
 
 def parse_github_owner_repo(url: str) -> tuple[str, str]:
@@ -149,44 +187,41 @@ def ensure_commit_identity(
     *,
     fallback_name: Optional[str] = None,
     fallback_email: Optional[str] = None,
-) -> None:
-    """Use local repo config if set; else GIT_AUTHOR_*; else credentials-file fallbacks."""
+) -> Optional[str]:
+    """Use local repo config if set; else GIT_AUTHOR_*; else credentials-file fallbacks.
+
+    Returns an error message, or None on success.
+    """
     name_cp = run_git(repo, "config", "user.name", token=None)
     email_cp = run_git(repo, "config", "user.email", token=None)
     if (name_cp.stdout or "").strip() and (email_cp.stdout or "").strip():
-        return
+        return None
     name = os.environ.get("GIT_AUTHOR_NAME", "").strip()
     email = os.environ.get("GIT_AUTHOR_EMAIL", "").strip()
     if name and email:
-        _must_ok(
-            run_git(repo, "config", "user.name", name, token=None),
-            "git config user.name",
-        )
-        _must_ok(
+        err = _git_err(run_git(repo, "config", "user.name", name, token=None), "git config user.name")
+        if err:
+            return err
+        return _git_err(
             run_git(repo, "config", "user.email", email, token=None),
             "git config user.email",
         )
-        return
     fn = (fallback_name or "").strip()
     fe = (fallback_email or "").strip()
     if fn and fe:
-        _must_ok(
-            run_git(repo, "config", "user.name", fn, token=None),
-            "git config user.name",
-        )
-        _must_ok(
+        err = _git_err(run_git(repo, "config", "user.name", fn, token=None), "git config user.name")
+        if err:
+            return err
+        return _git_err(
             run_git(repo, "config", "user.email", fe, token=None),
             "git config user.email",
         )
-        return
-    print(
-        "错误: 请在 prod 仓库中配置 git user.name / user.email，"
+    return (
+        "请在 prod 仓库中配置 git user.name / user.email，"
         "或设置 GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL，"
         "或在凭证文件 / 环境中提供 GITHUB_USERNAME 或 GH_USERNAME，以及 "
-        "GITHUB_EMAIL 或 GH_EMAIL。",
-        file=sys.stderr,
+        "GITHUB_EMAIL 或 GH_EMAIL。"
     )
-    sys.exit(1)
 
 
 def push_branch_fork(
@@ -241,7 +276,7 @@ def create_pull_request(
         "base": base_branch,
         "draft": True,
     }
-    r = requests.post(url, headers=headers, json=data, timeout=120)
+    r = requests.post(url, headers=headers, json=data, timeout=30)
     if r.status_code >= 400:
         print(r.text, file=sys.stderr)
         r.raise_for_status()
@@ -271,6 +306,7 @@ def sync_one_chart(
 ) -> tuple[bool, Optional[str], Optional[str]]:
     """
     Returns (success, pr_url_or_none_if_skipped, error_message).
+    Per-chart git failures return an error instead of exiting the process.
     """
     prod_root, test_root, prod_gh, _test_gh = resolve_roots(cfg)
     prod = cfg.get("prod")
@@ -291,13 +327,18 @@ def sync_one_chart(
     up_owner, up_repo = parse_github_owner_repo(upstream_url)
     fork_owner, fork_repo = parse_github_owner_repo(prod_gh)
 
-    # Ensure on configured branch before copy (sync_from_config already checked out)
-    _must_ok(
+    err = _git_err(
         run_git(prod_repo, "switch", branch, token=None),
         f"git switch {branch}",
     )
+    if err:
+        return False, None, err
 
-    copy_chart_tree(test_folder, prod_root / chart_name)
+    try:
+        copy_chart_tree(test_folder, prod_root / chart_name)
+    except OSError as e:
+        run_git(prod_repo, "switch", branch, token=None)
+        return False, None, f"复制 chart 失败: {e}"
 
     if not has_git_changes(prod_repo):
         print(f"  {chart_name}: 与当前 prod 无差异，跳过 PR。")
@@ -308,32 +349,41 @@ def sync_one_chart(
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     sync_branch = f"sync-{chart_name}-{ts}"
 
-    _must_ok(
+    err = _git_err(
         run_git(prod_repo, "switch", "-c", sync_branch, token=None),
         f"创建分支 {sync_branch}",
     )
+    if err:
+        run_git(prod_repo, "switch", branch, token=None)
+        return False, None, err
 
-    ensure_commit_identity(
+    ident_err = ensure_commit_identity(
         prod_repo,
         fallback_name=commit_author_name,
         fallback_email=commit_author_email,
     )
+    if ident_err:
+        run_git(prod_repo, "switch", branch, token=None)
+        return False, None, ident_err
     title_core = f"[{pr_type}][{chart_name}][{version}]"
     if optional_title and optional_title.strip():
         commit_title = f"{title_core} {optional_title.strip()}"
     else:
         commit_title = title_core
 
-    _must_ok(run_git(prod_repo, "add", "--", chart_name, token=None), "git add")
+    err = _git_err(run_git(prod_repo, "add", "--", chart_name, token=None), "git add")
+    if err:
+        run_git(prod_repo, "switch", branch, token=None)
+        return False, None, err
     cp_commit = run_git(prod_repo, "commit", "-m", commit_title, token=None)
     if cp_commit.returncode != 0:
         run_git(prod_repo, "switch", branch, token=None)
-        return False, None, "git commit 失败"
+        return False, None, _git_err(cp_commit, "git commit") or "git commit 失败"
 
     if not token:
         print(
             "错误: 未配置 GitHub token（env：GITHUB_TOKEN/GH_TOKEN 或 GITHUB_TOKEN_FILE；"
-            "或 --token-source file --token-file PATH），无法推送或创建 PR。",
+            "或 --token-file PATH），无法推送或创建 PR。",
             file=sys.stderr,
         )
         run_git(prod_repo, "switch", branch, token=None)
@@ -366,11 +416,14 @@ def sync_one_chart(
         run_git(prod_repo, "switch", branch, token=None)
         return False, None, f"创建 PR 失败: {e}"
 
-    _must_ok(
+    switch_back = _git_err(
         run_git(prod_repo, "switch", branch, token=None),
         f"回到 {branch}",
     )
+    if switch_back:
+        print(f"警告: {switch_back}", file=sys.stderr)
     print(f"  {chart_name}: PR {url}")
+    _flush()
     return True, url, None
 
 
@@ -385,7 +438,203 @@ def _git_toplevel(start: Path) -> Path:
     return Path((cp.stdout or "").strip())
 
 
+def _record_result(
+    status: dict[str, Any],
+    *,
+    name: str,
+    outcome: str,
+    pr_url: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    results = status.setdefault("results", [])
+    if not isinstance(results, list):
+        results = []
+        status["results"] = results
+    results.append(
+        {
+            "name": name,
+            "outcome": outcome,
+            "pr_url": pr_url,
+            "error": error,
+        }
+    )
+
+
+def _on_stop_signal(signum: int, _frame: object) -> None:
+    global _STOP_REQUESTED
+    _STOP_REQUESTED = True
+    print("收到中断信号，将在当前 chart 结束后停止...", flush=True)
+
+
+def _cancel_requested(job_dir: Path, status: dict[str, Any]) -> bool:
+    if _STOP_REQUESTED:
+        return True
+    fresh = load_status(job_dir)
+    if fresh and fresh.get("cancel_requested"):
+        status["cancel_requested"] = True
+        return True
+    return False
+
+
+def _finish_cancelled(
+    status: dict[str, Any],
+    job_dir: Path,
+    cfg: dict[str, Any],
+    branch: str,
+    done: int,
+    total: int,
+) -> int:
+    status["state"] = "cancelled"
+    status["finished_at"] = utc_now_iso()
+    status["current_chart"] = None
+    status["message"] = f"用户中断，已完成 {done}/{total}"
+    save_status(job_dir, status)
+    try:
+        prod_root, _, _, _ = resolve_roots(cfg)
+        repo = _git_toplevel(prod_root)
+        run_git(repo, "switch", branch)
+    except Exception as e:
+        print(f"警告: 中断后切回 {branch} 失败: {e}", file=sys.stderr)
+    print("任务已中断。")
+    return 130
+
+
+def run_charts_job(
+    *,
+    charts: list[str],
+    cfg: dict[str, Any],
+    cfg_path: Path,
+    branch: str,
+    token: Optional[str],
+    optional_title: Optional[str],
+    allow_dirty: bool,
+    skip_sync: bool,
+    commit_author_name: Optional[str],
+    commit_author_email: Optional[str],
+    job_dir: Path,
+) -> int:
+    status = load_status(job_dir) or {}
+    status["pid"] = os.getpid()
+    status["state"] = "running"
+    status["message"] = None
+    save_status(job_dir, status)
+    signal.signal(signal.SIGTERM, _on_stop_signal)
+    signal.signal(signal.SIGINT, _on_stop_signal)
+
+    lock = RepoLock()
+    if not lock.acquire():
+        status["state"] = "failed"
+        status["finished_at"] = utc_now_iso()
+        status["message"] = "另一个 sync_chart 任务正在运行（prod 工作区锁）"
+        save_status(job_dir, status)
+        print(f"错误: {status['message']}", file=sys.stderr)
+        return 1
+
+    try:
+        if not skip_sync:
+            if not token:
+                print(
+                    "错误: fork 同步需要有效的 GitHub token。"
+                    "请设置 GITHUB_TOKEN / GH_TOKEN、GITHUB_TOKEN_FILE，"
+                    "或使用 --token-file ...",
+                    file=sys.stderr,
+                )
+                status["state"] = "failed"
+                status["finished_at"] = utc_now_iso()
+                status["message"] = "缺少 token"
+                save_status(job_dir, status)
+                return 1
+            verify_github_token(token)
+            sync_from_config(
+                cfg,
+                cfg_path,
+                branch=branch,
+                token=token,
+                allow_dirty=allow_dirty,
+            )
+            print()
+            _flush()
+        else:
+            print(
+                "已跳过 fork 同步（--skip-sync），将使用本地 prod/test 目录当前内容。",
+                file=sys.stderr,
+            )
+
+        failed: list[tuple[str, str]] = []
+        for i, name in enumerate(charts):
+            if _cancel_requested(job_dir, status):
+                return _finish_cancelled(status, job_dir, cfg, branch, i, len(charts))
+            print(f"--- 同步 {name} ({i + 1}/{len(charts)}) ---")
+            _flush()
+            status["index"] = i + 1
+            status["current_chart"] = name
+            save_status(job_dir, status)
+            try:
+                ok, pr_url, err = sync_one_chart(
+                    cfg=cfg,
+                    branch=branch,
+                    chart_name=name,
+                    token=token,
+                    optional_title=optional_title,
+                    allow_dirty=allow_dirty,
+                    commit_author_name=commit_author_name,
+                    commit_author_email=commit_author_email,
+                )
+            except Exception as e:
+                ok, pr_url, err = False, None, f"未捕获异常: {e}"
+            if ok and pr_url:
+                _record_result(status, name=name, outcome="ok", pr_url=pr_url)
+            elif ok:
+                _record_result(status, name=name, outcome="skip", error=err)
+            else:
+                failed.append((name, err or "unknown"))
+                _record_result(status, name=name, outcome="fail", error=err or "unknown")
+                print(f"  {name}: 失败: {err or 'unknown'}", file=sys.stderr)
+            save_status(job_dir, status)
+            if _cancel_requested(job_dir, status):
+                return _finish_cancelled(status, job_dir, cfg, branch, i + 1, len(charts))
+            if i < len(charts) - 1 and ok and pr_url:
+                time.sleep(_PR_INTERVAL_SEC)
+
+        status["current_chart"] = None
+        status["finished_at"] = utc_now_iso()
+        if failed:
+            status["state"] = "failed"
+            status["message"] = f"{len(failed)}/{len(charts)} 个 chart 失败"
+            save_status(job_dir, status)
+            print("以下 chart 失败:", file=sys.stderr)
+            for n, e in failed:
+                print(f"  {n}: {e}", file=sys.stderr)
+            return 1
+        status["state"] = "done"
+        status["message"] = "全部完成"
+        save_status(job_dir, status)
+        print("全部完成。")
+        return 0
+    except SystemExit as e:
+        code = e.code
+        if code is None or code == 0:
+            status["state"] = "done"
+            status["finished_at"] = utc_now_iso()
+            save_status(job_dir, status)
+            raise
+        status["state"] = "failed"
+        status["finished_at"] = utc_now_iso()
+        status["message"] = status.get("message") or "任务中止"
+        save_status(job_dir, status)
+        raise
+    except Exception as e:
+        status["state"] = "crashed"
+        status["finished_at"] = utc_now_iso()
+        status["message"] = f"未捕获异常: {e}"
+        save_status(job_dir, status)
+        raise
+    finally:
+        lock.release()
+
+
 def main() -> None:
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="从 test 同步 chart 到 prod，并向 prod upstream 提交草稿 PR",
     )
@@ -430,23 +679,22 @@ def main() -> None:
     parser.add_argument(
         "--token-source",
         choices=("env", "file"),
-        default="env",
-        metavar="MODE",
-        help="token 来源：env（默认，环境变量）或 file（需配合 --token-file）",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--token-file",
         type=Path,
         default=None,
         metavar="PATH",
-        help="--token-source file 时读取凭证文件（GITHUB_* 与 GH_* 两套键名，语义与 env 一致）",
+        help="从该凭证文件读取 PAT（给出则不再读环境变量中的 token；GITHUB_* 与 GH_* 两套键名）",
     )
     parser.add_argument(
         "--token-env",
         default=None,
         metavar="NAME",
-        help="仅在 --token-source env 时生效：优先从该环境变量读取，其次 GITHUB_TOKEN / GH_TOKEN，"
-        "仍可使用环境变量 GITHUB_TOKEN_FILE 指向文件",
+        help="优先从该环境变量读取 PAT，其次 GITHUB_TOKEN / GH_TOKEN；"
+        "仍可使用环境变量 GITHUB_TOKEN_FILE 指向文件。与 --token-file 同时出现时以文件为准",
     )
     parser.add_argument(
         "--skip-sync",
@@ -454,13 +702,57 @@ def main() -> None:
         dest="skip_sync",
         help="跳过 fork 同步（不 fetch/合并 upstream 与 origin），直接使用本地 prod/test 数据提交",
     )
+    parser.add_argument(
+        "--status",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="JOB_ID",
+        help="查询任务进度；省略 JOB_ID 则显示最近一次任务",
+    )
+    parser.add_argument(
+        "--cancel",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="JOB_ID",
+        help="中断当前运行中的任务（当前 chart 结束后停止）；省略 JOB_ID 则中断最近一次任务",
+    )
+    parser.add_argument(
+        "--detach",
+        action="store_true",
+        help="强制后台运行（批量任务在非 TTY 下默认已后台）",
+    )
+    parser.add_argument(
+        "--foreground",
+        action="store_true",
+        help="强制前台运行，等待全部 chart 完成",
+    )
+    parser.add_argument(
+        "--job-dir",
+        type=Path,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
 
-    if args.token_source == "file":
-        if args.token_file is None:
-            parser.error("--token-source file 需要 --token-file PATH")
-    elif args.token_file is not None:
-        parser.error("使用 --token-file 时请指定 --token-source file")
+    if args.status is not None:
+        raise SystemExit(cmd_status(args.status))
+
+    if args.cancel is not None:
+        raise SystemExit(cmd_cancel(args.cancel))
+
+    if args.detach and args.foreground:
+        parser.error("不能同时指定 --detach 与 --foreground")
+
+    # Token source is inferred: --token-file → file, otherwise env.
+    # Hidden --token-source is still accepted for older Agent invocations.
+    if args.token_file is not None:
+        token_from_file = True
+    elif args.token_source == "file":
+        parser.error("从文件读取 token 请使用 --token-file PATH")
+    else:
+        token_from_file = False
 
     if args.batch_file is not None and args.chart is not None:
         parser.error("不能同时指定单个 CHART 与 --batch")
@@ -487,7 +779,7 @@ def main() -> None:
 
     commit_author_name: Optional[str] = None
     commit_author_email: Optional[str] = None
-    if args.token_source == "file":
+    if token_from_file:
         assert args.token_file is not None
         tf = args.token_file
         if not tf.is_absolute():
@@ -509,54 +801,56 @@ def main() -> None:
         token = resolve_github_token(args.token_env)
         commit_author_name, commit_author_email = resolve_github_identity_from_env()
 
-    if not args.skip_sync:
-        if not token:
-            print(
-                "错误: fork 同步需要有效的 GitHub token。"
-                "请设置 GITHUB_TOKEN / GH_TOKEN、GITHUB_TOKEN_FILE，"
-                "或使用 --token-source file --token-file ...",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        verify_github_token(token)
-        sync_from_config(
-            cfg,
-            cfg_path,
-            branch=args.branch,
-            token=token,
-            allow_dirty=args.allow_dirty,
-        )
-        print()
-    else:
-        print(
-            "已跳过 fork 同步（--skip-sync），将使用本地 prod/test 目录当前内容。",
-            file=sys.stderr,
-        )
+    job_dir = args.job_dir
+    if job_dir is not None and not job_dir.is_absolute():
+        job_dir = (Path.cwd() / job_dir).resolve()
 
-    failed: list[tuple[str, str]] = []
-    for i, name in enumerate(charts):
-        print(f"--- 同步 {name} ({i + 1}/{len(charts)}) ---")
-        ok, pr_url, err = sync_one_chart(
+    # Worker re-entry (--job-dir) already owns the active job; new submissions must wait.
+    if job_dir is None:
+        active = find_active_job()
+        if active is not None:
+            print_busy_error(active[1])
+            sys.exit(2)
+
+    want_detach = False
+    if job_dir is None and not args.foreground:
+        # Agent exec is not a TTY; --batch would otherwise block until every PR is
+        # opened and get killed by the host timeout. Single CHART stays foreground.
+        if args.detach or (args.batch_file is not None and not sys.stdout.isatty()):
+            want_detach = True
+
+    if job_dir is None:
+        job_dir = create_job(charts)
+
+    if want_detach:
+        try:
+            pid = spawn_detached_worker(_SCRIPT_PATH, job_dir)
+        except OSError as e:
+            print(f"错误: 无法启动后台任务: {e}", file=sys.stderr)
+            sys.exit(1)
+        st = load_status(job_dir) or {}
+        st["pid"] = pid
+        st["state"] = "queued"
+        st["message"] = "已在后台启动"
+        save_status(job_dir, st)
+        print_detach_banner(job_dir, pid)
+        return
+
+    raise SystemExit(
+        run_charts_job(
+            charts=charts,
             cfg=cfg,
+            cfg_path=cfg_path,
             branch=branch,
-            chart_name=name,
             token=token,
             optional_title=args.title,
             allow_dirty=args.allow_dirty,
+            skip_sync=args.skip_sync,
             commit_author_name=commit_author_name,
             commit_author_email=commit_author_email,
+            job_dir=job_dir,
         )
-        if not ok:
-            failed.append((name, err or "unknown"))
-        if i < len(charts) - 1 and ok and pr_url:
-            time.sleep(5)
-
-    if failed:
-        print("以下 chart 失败:", file=sys.stderr)
-        for n, e in failed:
-            print(f"  {n}: {e}", file=sys.stderr)
-        sys.exit(1)
-    print("全部完成。")
+    )
 
 
 if __name__ == "__main__":

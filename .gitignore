@@ -202,6 +202,7 @@ sync_chart/config.yaml
 sync_chart/github.txt
 sync_chart/app_list/
 sync_chart/credentials/
+sync_chart/output/
 sync_fork/config.yaml
 repo_stats/config.yaml
 repo_stats/output/
