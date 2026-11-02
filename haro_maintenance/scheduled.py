@@ -27,6 +27,9 @@ def main():
         result = json.loads(r.stdout)
     except ValueError:
         result = {"error": "maintenance process did not return JSON"}
+    if a.mode == "refresh" and result.get("error") == "another local maintenance run is active":
+        print("NO_REPLY")
+        return 0
     tasks = result.get("apps", [])
     stable = {"apps": [{k: t.get(k) for k in ("app", "target", "status", "error", "url")} for t in tasks],
               "errors": result.get("errors", []), "error": result.get("error")}

@@ -335,6 +335,17 @@ class SchedulerTests(unittest.TestCase):
                     self.assertEqual(run.call_count, 1)  # no nested gateway message call
                     self.assertIn(expected, output.getvalue())
 
+    def test_overlapping_refresh_skips_without_alert(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config.yaml"
+            config.write_text(yaml.safe_dump(sample(Path(tmp))))
+            reply = subprocess.CompletedProcess([], 1, json.dumps({"error": "another local maintenance run is active"}), "")
+            output = io.StringIO()
+            with patch.object(sys, "argv", ["scheduled", "--config", str(config), "refresh"]), patch.object(scheduled.subprocess, "run", return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 0)
+                self.assertEqual(output.getvalue().strip(), "NO_REPLY")
+
 
 if __name__ == "__main__":
     unittest.main()
