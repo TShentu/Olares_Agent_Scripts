@@ -1,1 +1,1 @@
-{"checkpoint": "ea047c291b7a0b0b33cea98ac5c1cf0d6aa97d51", "configuration": "dba0a8e38b604e6fb8856f502f6e43b8f54d6679affd3fe9f3fa394fbee7d5b1", "lease": {"owner": "a2ec23d2-5225-4718-8a23-c713eefd483d", "until": 1793625230.9128356}, "schema": 1, "tasks": {}}
+{"checkpoint": "ea047c291b7a0b0b33cea98ac5c1cf0d6aa97d51", "configuration": "dba0a8e38b604e6fb8856f502f6e43b8f54d6679affd3fe9f3fa394fbee7d5b1", "lease": null, "schema": 1, "tasks": {}}
