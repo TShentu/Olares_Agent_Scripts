@@ -1,0 +1,41 @@
+# Legacy environment keys are unchanged. No preview section means two levels.
+git_branch: main
+blacklist: ""
+test:
+  level: 10
+  github: https://github.com/YOUR_ACCOUNT/terminus-apps
+  upstream: https://github.com/Above-Os/terminus-apps
+  local_path: /home/userdata/home/Code/Olares_Project/terminus-apps
+  suspend_version_rule: increase
+prod:
+  level: 30
+  github: https://github.com/YOUR_ACCOUNT/apps
+  upstream: https://github.com/beclab/apps
+  local_path: /home/userdata/home/Code/Olares_Project/apps
+  suspend_version_rule: increase
+# Add preview using the same fields and level: 20 when ready.
+auth:
+  github_token: ""
+  # github_token_file: /absolute/path/to/existing/github.txt
+runtime:
+  maintenance_root: /home/node/.openclaw/workspace/state/haro-maintenance
+  release: ""
+maintenance:
+  enabled: false
+  timezone: Asia/Shanghai
+  schedule: "0 3 * * *"
+  refresh_schedule: "*/10 * * * *"
+  fork_sync:
+    mode: mirror_upstream
+    preserve_divergent_head: true
+  backport:
+    strategy: source_snapshot
+    scope: changed_apps
+    delivery: draft_pr
+    exclude_apps: []
+recovery:
+  repository: YOUR_ACCOUNT/Olares_Agent_Scripts
+  branch: haro-maintenance-state
+notifications:
+  channel: feishu
+  target: ""
