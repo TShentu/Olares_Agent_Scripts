@@ -66,3 +66,5 @@ description: Handle !app help and implemented Haro repository maintenance comman
 合并后，跳级发布自动创建中间环境 backport；使用实际合并内容，如生产随后有新更新则以更新事件接续。关闭未合并不触发。
 回流失败不改变生产发布已合并状态；显示关联任务及 needs_engineer，日常检查持续复核仓库一致性。
 首版仅单应用，不把批量参数拆成未经确认的多次发布。
+
+`job/jobs` 的唯一数据源是 lifecycle.py 查询出的 GitHub 恢复状态。查询成功就返回结果；空列表只说明没有匹配操作记录，不能推出定时任务不存在。不要为 job 查询调用 automations/cron 清单或提议新增例行检查，现有十分钟 refresh 已负责队列推进。预检查不保存 job；仅 --apply 返回的持久化 job ID 可供后续查询。
