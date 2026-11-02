@@ -38,3 +38,5 @@ description: Handle !app help and implemented Haro repository maintenance comman
 源快照覆盖选定应用目录（包含删除目标独有文件），仍受 owner/版本校验约束；
 所有 upstream PR 由人工审核合并，合并不证明 Market 已生效。
 返回状态、源/目标、PR 链接及具体阻塞原因；禁止展示凭据。
+
+状态报告的空数组不能推出仓库已同步或没有新增生产更新：定时 refresh 不检查 fork，也不发现新增更新，可能写出空 forks/apps。若报告未记录 run/refresh 类型，说明无法据此判断检查范围；需要 `!app sync` 做完整预检查。不要推荐不存在的 `!app compare`。
