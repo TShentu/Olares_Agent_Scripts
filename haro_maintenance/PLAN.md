@@ -28,7 +28,7 @@ Haro 是运行在 `hzfysttq.olares.com` 上的 OpenClaw Agent，以飞书机器�
 | test fork | `https://github.com/TShentu/terminus-apps` |
 | prod upstream | `https://github.com/beclab/apps` |
 | prod fork | `https://github.com/TShentu/apps` |
-| preview | 尚待提供真实 upstream、fork 和路径 |
+| preview | upstream `beclab/apps-preview`；fork `TShentu/apps-preview`；分支 `main`；level 20 |
 
 现有应用同步通过删除目标应用目录后 `copytree` 完成；fork 同步通过 `reset --hard upstream/main` 和普通 `push --force` 完成。`mod-app` 已有 PR guard，可复用其中适用的校验规则。
 
@@ -52,7 +52,7 @@ OpenClaw 配置曾记录 `lastTouchedVersion=2026.10.1`，这不等于已验证�
 - `git_branch` 保留为全局默认分支，缺省为 `main`；新增可选环境级 `git_branch` 覆盖。
 - `blacklist` 保留原有比较用途与路径解析语义，不能自动作为 backport 排除规则。
 
-示例仅展示结构，不包含真实秘密，preview 占位内容不能直接用于部署：
+示例仅展示结构，不包含真实秘密，preview 已配置真实仓库：
 
 ```yaml
 git_branch: main
@@ -66,9 +66,9 @@ test:
 
 preview:
   level: 20
-  github: "<preview fork URL>"
-  upstream: "<preview upstream URL>"
-  local_path: "<preview 本地路径>"
+  github: "https://github.com/TShentu/apps-preview"
+  upstream: "https://github.com/beclab/apps-preview"
+  local_path: "/home/userdata/home/Code/Olares_Project/apps-preview"
 
 prod:
   level: 30

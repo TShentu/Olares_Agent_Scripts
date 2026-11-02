@@ -8,10 +8,11 @@ Source release: `8c009b9fbfb8c902e834780cd216e8f172b9a2cc` on
 
 - Independent module: `/home/userdata/home/Code/Olares_Project/Olares_Agent_Scripts/haro_maintenance`.
 - Private configuration: `config.yaml` in that directory, mode 0600. Existing prod/test
-  repository keys retained, levels inferred as 10/30; no preview repository configured.
+  repository keys retained; explicit levels test=10, preview=20, prod=30.
+  Preview upstream is `beclab/apps-preview`; fork is `TShentu/apps-preview`, branch `main`.
 - Independent state: `/home/node/.openclaw/workspace/state/haro-maintenance`.
 - Recovery repository: `TShentu/Olares_Agent_Scripts`, branch
-  `haro-maintenance-state-hzfysttq`. No publication branch is used for recovery.
+  `haro-maintenance-state-hzfysttq-three-env`. The previous two-environment branch is retained. No publication branch is used for recovery.
 - New `haro-reconcile` skill installed beside existing skills, with a private runtime
   locator. Existing application modification/publication routes remain unchanged.
 
@@ -51,7 +52,7 @@ that an existing running file was replaced. Never overwrite private config or ba
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-maintenance-8c009b9.secret.yaml` under the
+Private single-file export: `backups/haro-maintenance-three-env.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
@@ -68,3 +69,11 @@ rollout described in PLAN.md. Human-ready PR branches are not automatically rewr
 
 Phase two remains separate: new employee-facing promote/publish commands, the shared
 Market history resolver/reporting, and full legacy Haro configuration migration.
+
+## Preview configuration
+
+Added preview on 2026-11-02. The existing production checkpoint was preserved when
+migrating to the dedicated three-environment recovery branch; adding preview does
+not trigger a bulk backport of historical differences. Existing business scripts
+and their separate configs remain unchanged. Daily maintenance now includes all
+three forks, and new production changes target both lower environments.
