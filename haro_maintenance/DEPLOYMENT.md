@@ -1,7 +1,7 @@
 # Haro phase one deployment
 
 Deployment date: 2026-11-02. Target: `hzfysttq.olares.com`, OpenClaw 2026.10.1.
-Source release: `aa35c8aa3125b4b18215340ec28beadae344fa95` on
+Source release: `8c009b9fbfb8c902e834780cd216e8f172b9a2cc` on
 `feat/haro-maintenance`. Code review: https://github.com/TShentu/Olares_Agent_Scripts/pull/2.
 
 ## Installed scope
@@ -29,13 +29,16 @@ application review group. Refreshes with no tasks/changes remain quiet.
 
 ## Verified behavior
 
-- 22 tests passed locally (Python 3.9) and in the deployment container (Python 3.14).
+- 24 tests passed locally (Python 3.9) and in the deployment container (Python 3.14).
 - Live dry-run validated fork network relationships and push permissions, without writes.
 - Initial apply synchronized test/prod fork main to their upstreams; neither needed a
   divergence archive. No upstream main was written and no application PR was created.
 - Initial production checkpoint: `ea047c291b7a0b0b33cea98ac5c1cf0d6aa97d51`.
   Existing app differences were reported only, not automatically copied.
-- A real scheduler-triggered refresh completed successfully and restored state from GitHub.
+- A real daily scheduler run succeeded and native Feishu delivery returned `delivered`.
+- Scheduled refresh succeeded with `NO_REPLY` and delivery suppression `silent`.
+  Overlap with a local maintenance run is treated as a quiet refresh skip.
+- State recovery from GitHub was verified.
 - All 14 pre-existing Python business scripts matched their pre-deployment SHA256 hashes.
   The existing modified `sync_chart.py` was preserved.
 - The legacy fork config now contains only static/Olares; its original config and job
@@ -43,12 +46,12 @@ application review group. Refreshes with no tasks/changes remain quiet.
 
 Files upload on this instance auto-renames existing filenames (for example `(1).py`).
 For subsequent releases upload a uniquely named archive, verify SHA256, then replace
-only this module's tracked files atomically. Do not interpret upload success as proof
+only this module's tracked files. Do not interpret upload success as proof
 that an existing running file was replaced. Never overwrite private config or backups.
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-maintenance-20261102.secret.yaml` under the
+Private single-file export: `backups/haro-maintenance-8c009b9.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
