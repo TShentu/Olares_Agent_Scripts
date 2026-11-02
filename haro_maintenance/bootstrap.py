@@ -40,7 +40,9 @@ def install(cfg, apply=False):
         command = [sys.executable, script, "--config", str(cfg.path), mode]
         expr = cfg.maintenance.get("schedule" if mode == "run" else "refresh_schedule", default)
         args = ["--name", key, "--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai"),
-                "--command-argv", json.dumps(command), "--timeout-seconds", "1500", "--no-deliver"]
+                "--command-argv", json.dumps(command), "--timeout-seconds", "1500",
+                "--announce", "--channel", notifications.get("channel", "feishu"),
+                "--to", notifications["target"]]
         if apply:
             if matched:
                 r = cli("cron", "edit", matched[0]["id"], *args, "--enable")

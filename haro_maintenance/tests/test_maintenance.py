@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import io
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import yaml
@@ -314,6 +316,24 @@ class SemverTests(unittest.TestCase):
         values = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"]
         self.assertEqual(sorted(values, key=version_key), values)
         self.assertEqual(version_key("1.0.0+a"), version_key("1.0.0+b"))
+
+
+class SchedulerTests(unittest.TestCase):
+    def test_native_delivery_and_quiet_refresh(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config.yaml"
+            config.write_text(yaml.safe_dump(sample(root)))
+            (root / "state").mkdir()
+            reply = subprocess.CompletedProcess([], 0, json.dumps({"apps": [], "forks": [], "errors": []}), "")
+            for mode, expected in (("run", "Haro 仓库维护 完成"), ("refresh", "NO_REPLY")):
+                output = io.StringIO()
+                with patch.object(sys, "argv", ["scheduled", "--config", str(config), mode]), \
+                     patch.object(scheduled.subprocess, "run", return_value=reply) as run, redirect_stdout(output):
+                    self.assertEqual(scheduled.main(), 0)
+                    self.assertEqual(run.call_count, 1)  # no nested gateway message call
+                    self.assertIn(expected, output.getvalue())
 
 
 if __name__ == "__main__":

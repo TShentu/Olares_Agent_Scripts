@@ -17,13 +17,16 @@ def main():
     p.add_argument("mode", choices=["run", "refresh"])
     a = p.parse_args()
     cfg = Config(a.config)
-    r = subprocess.run([sys.executable, str(Path(__file__).with_name("maintenance.py")),
-                        "--config", str(cfg.path), a.mode, "--apply"], capture_output=True, text=True, timeout=1400)
+    try:
+        r = subprocess.run([sys.executable, str(Path(__file__).with_name("maintenance.py")),
+                            "--config", str(cfg.path), a.mode, "--apply"], capture_output=True, text=True, timeout=1400)
+    except subprocess.TimeoutExpired:
+        print("Haro 仓库维护超时；请检查记录，不要直接重跑未知写入。")
+        return 1
     try:
         result = json.loads(r.stdout)
     except ValueError:
         result = {"error": "maintenance process did not return JSON"}
-    print(json.dumps(result, ensure_ascii=False))
     tasks = result.get("apps", [])
     stable = {"apps": [{k: t.get(k) for k in ("app", "target", "status", "error", "url")} for t in tasks],
               "errors": result.get("errors", []), "error": result.get("error")}
@@ -31,8 +34,10 @@ def main():
     memo = cfg.root / "notification.json"
     previous = json.loads(memo.read_text()) if memo.exists() else {}
     if a.mode == "refresh" and digest == previous.get("digest"):
+        print("NO_REPLY")
         return r.returncode
     if a.mode == "refresh" and not tasks and not result.get("error") and not result.get("errors"):
+        print("NO_REPLY")
         return r.returncode
     lines = ["Haro 仓库维护 " + ("完成" if r.returncode == 0 else "需要处理")]
     if result.get("baseline"):
@@ -46,15 +51,10 @@ def main():
     if result.get("error"):
         lines.append(result["error"])
     lines.append("PR 由人工审核合并；合并不代表 Market 已生效。")
-    n = cfg.raw.get("notifications") or {}
-    # Delivery is intentionally not retried on unknown outcome.
-    if n.get("target"):
-        send = subprocess.run(["openclaw", "message", "send", "--channel", n.get("channel", "feishu"),
-                               "--target", n["target"], "--message", "\n".join(lines)], capture_output=True, timeout=90)
-        if send.returncode:
-            print(json.dumps({"notification": "failed_or_unknown; inspect delivery before retry"}))
-            return 3
-        atomic_json(memo, {"digest": digest})
+    # Native command delivery runs after the command exits. Calling the gateway
+    # recursively with message send can deadlock while its command queue is held.
+    print("\n".join(lines))
+    atomic_json(memo, {"digest": digest, "meaning": "last generated summary; delivery is owned by OpenClaw"})
     return r.returncode
 
 

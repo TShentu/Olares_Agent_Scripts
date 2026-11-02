@@ -94,8 +94,10 @@ python3 bootstrap.py --config /absolute/config.yaml --apply
 - Daily 03:00 Asia/Shanghai: fork sync, discover new source changes, backport PRs.
 - Every 10 minutes: refresh tracked PRs without fork synchronization or new discovery.
 
-The wrapper sends daily summaries and meaningful refresh changes to the configured
-Feishu target; unknown delivery results are not blindly retried. Command timeout is
+The wrapper emits daily summaries and meaningful refresh changes; OpenClaw's native
+command announcement delivers them to the configured Feishu target. Quiet refreshes
+emit only `NO_REPLY`. Do not nest `openclaw message send` inside command jobs: it can
+stall on the gateway command queue. Native delivery owns retries/receipts. Command timeout is
 bounded. Existing unrelated OpenClaw jobs remain untouched. Before enabling the
 schedule, remove only overlapping application repos from an existing fork-sync job;
 preserve static/Olares and all unrelated jobs. Back up legacy config and cron JSON
