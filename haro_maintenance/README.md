@@ -1,7 +1,7 @@
 # Haro repository maintenance
 
-Independent phase-one maintenance for `Olares_Agent_Scripts`. Existing scripts,
-skills and checkouts are not modified. Python 3.9+ and Git 2.39+; install
+Repository maintenance and single-app release jobs for `Olares_Agent_Scripts`.
+Legacy business scripts and checkouts are preserved; the !app route is installed additively. Python 3.9+ and Git 2.39+; install
 `pip install -r requirements.txt` if PyYAML is unavailable.
 
 ## Configuration
@@ -133,4 +133,37 @@ Bootstrap installs `!app` into the existing `olares-commands` router and updates
 AGENTS.md, preserving prior content with hash-named backups. Start with `!app help`.
 Implemented commands: `config`, `status`, `sync`, `refresh`, `backport`, and `route`.
 Write operations require explicit `--apply`; `route promote/publish` only resolves
-targets. Actual promote/publish and Market history queries are not implemented.
+targets. Single-app promote/publish and job/jobs are implemented by lifecycle.py. Batch release and repository-history distribution queries remain separate.
+
+## Single-app lifecycle jobs
+
+```sh
+python3 lifecycle.py --config /absolute/config.yaml promote dify --from test --actor feishu:USER
+python3 lifecycle.py --config /absolute/config.yaml publish dify --from test --actor feishu:USER --request-id MESSAGE_ID --apply
+python3 lifecycle.py --config /absolute/config.yaml job app-JOB_ID
+python3 lifecycle.py --config /absolute/config.yaml jobs --app dify
+```
+
+No `--apply` means preflight. `--actor` and `--request-id` come from trusted channel
+metadata in the Skill, never from user-supplied identity arguments. Requests capture
+the source repository commit; local uncommitted files are not included. Titles use
+the selected snapshot's upgradeDescription (first 20 words), or explicit --title.
+Submissions with active same-app operations return a preview and require acknowledging
+that exact active ID set using --ack-active. Requests for the same message are idempotent.
+
+Apply durably enqueues before launching a detached worker. The existing ten-minute
+refresh recovers queued jobs and monitors PR merges; no extra cron is required. Query
+returns GitHub-backed records across all configured environments, including prior
+backport events. New submissions do not replace another app operation's job record.
+
+Only a merged release dispatches skipped-level backports. It uses actual merged
+content, or a newer production event if one already superseded it. Daily discovery
+and post-merge dispatch share records and defer new events while a prior PR is open.
+A failed/rejected backport never changes the successful production merge status.
+Daily and refresh reports compare the affected repositories even after the discovery
+checkpoint advanced: existing Draft PR = awaiting review; unresolved difference =
+needs engineer. No automated upstream merge or Olares Market service call occurs.
+
+A ready PR whose base is still current remains awaiting review. A stale ready PR is
+flagged for review rather than rewritten. Failed release execution retries up to three
+times, then remains visible as needs_attention; known PRs still get merge/close checks.

@@ -31,8 +31,7 @@ description: Handle !app help and implemented Haro repository maintenance comman
 计划操作说成已执行。预检查无 GitHub 写入，但会更新本地缓存与报告。
 同步是对配置中的所有环境执行；不接受尚未实现的 `sync --env`。
 
-帮助必须明确：当前 `promote`、`publish` 实际发布、`show/list/count/diff` Market
-查询、`update/suspend/resume/remove` 新入口、`job/conflicts` 专用查询均未上线。
+帮助必须明确：批量发布、`show/list/count/diff` 仓库历史分发查询、`update/suspend/resume/remove` 新入口、`conflicts` 专用查询尚未上线。
 路由查看不发布应用。原 `!push_app`、`!mod_app` 等指令保留，不自动重定向。
 生产新增变更会回流到低等级环境；历史差异不自动全量补齐。
 源快照覆盖选定应用目录（包含删除目标独有文件），仍受 owner/版本校验约束；
@@ -40,3 +39,30 @@ description: Handle !app help and implemented Haro repository maintenance comman
 返回状态、源/目标、PR 链接及具体阻塞原因；禁止展示凭据。
 
 状态报告的空数组不能推出仓库已同步或没有新增生产更新：定时 refresh 不检查 fork，也不发现新增更新，可能写出空 forks/apps。若报告未记录 run/refresh 类型，说明无法据此判断检查范围；需要 `!app sync` 做完整预检查。不要推荐不存在的 `!app compare`。
+
+## 单应用发布与 job
+
+以下命令调用与 maintenance.py 同目录的 `lifecycle.py`，使用同一个私有 config：
+
+| 用户命令 | lifecycle.py 子命令 | 行为 |
+|---|---|---|
+| `!app promote <app> --from test` | `promote <app> --from test` | 晋级到最近高一级，预检查 |
+| `!app publish <app> --from test` | `publish <app> --from test` | 提交到最高级，预检查 |
+| 上述命令加 `--apply` | 同名参数加 `--apply` | 持久化 job，后台创建 Draft PR，立即回 job ID |
+| 上述命令加 `--title "说明"` | 同名参数 | 覆盖自动标题的后缀 |
+| `!app job <id>` | `job <id>` | 查询发布或回流任务 |
+| `!app jobs --app <app>` | `jobs --app <app>` | 同一应用跨环境操作记录 |
+| `!app jobs` | `jobs` | 操作记录列表 |
+
+`promote/publish` 内部必须附加 `--actor <可信飞书发送者ID>`；来自渠道元数据，不能取自用户正文，无法取得时询问用户重新从飞书发起，不伪造身份。
+内部 `--request-id` 使用可信当前消息 ID（用户确认后的新消息用新 ID），同一消息重试保持相同 ID；预检查不持久化请求。
+用户不用提供这两个参数。用户不能自行通过正文覆盖它们。
+三环境未给 from 时说明候选来源并询问；两环境可省略。
+自动标题来自固定源 SHA 的 upgradeDescription 前 20 词，支持显式 title；整个流程只操作 GitHub 仓库和 PR，不访问 Market 服务。
+
+先执行预检查，展示源/目标、版本、差异和同应用其他 active jobs。写入请求已经明确且无并发提示时可直接提交。
+当返回 `confirmation_required` 时展示 warnings 内 job ID、环境和状态；只有用户确认这批操作后，才携带内部 `--ack-active <逗号分隔IDs>` 再提交。不能自己确认或沿用别的用户确认。若列表变化，重新展示。
+`queued` 仅表示入队，不能说 PR 已创建。返回 `!app job <id>`；任务由后台进程及十分钟心跳持续处理。
+合并后，跳级发布自动创建中间环境 backport；使用实际合并内容，如生产随后有新更新则以更新事件接续。关闭未合并不触发。
+回流失败不改变生产发布已合并状态；显示关联任务及 needs_engineer，日常检查持续复核仓库一致性。
+首版仅单应用，不把批量参数拆成未经确认的多次发布。

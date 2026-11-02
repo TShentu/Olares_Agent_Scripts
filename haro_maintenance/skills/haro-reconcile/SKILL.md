@@ -42,3 +42,5 @@ Return app, source/target, task status, PR URL and concise error. Distinguish Dr
 PR created, merged, and expected Market publication; merging is not proof of live
 Market availability. Ordinary results go to the requesting conversation; scheduled
 delivery is handled by the deterministic wrapper using the configured destination.
+
+Single-app promote/publish and job/jobs are available in sibling lifecycle.py. The !app command skill defines trusted requester metadata and active-job acknowledgement. Scheduled run/refresh also processes these jobs, detects merges and audits failed follow-ups. No Market service API is used.

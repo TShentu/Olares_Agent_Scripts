@@ -12,6 +12,7 @@ import re
 import sys
 import time
 import uuid
+import yaml
 from pathlib import Path
 
 from config import Config, Error
@@ -81,6 +82,10 @@ class Runner:
         if self.state.get("configuration") not in (None, self.signature):
             raise Error("environment mapping changed; use a new recovery branch to establish a new baseline")
         self.state["configuration"] = self.signature
+        from lifecycle import record_id
+        for task in self.state["tasks"].values():
+            task.setdefault("id", record_id())
+            task.setdefault("operation", "backport")
         if self.apply:
             self.remote.initialize_branch()
             self.save()
@@ -124,11 +129,8 @@ class Runner:
                     continue
                 event = self.git.text("log", "-1", "--format=%H", head, "--", app)
                 for target in self.cfg.envs[:-1]:
-                    key = target.name + "/" + app
-                    prior = self.state["tasks"].get(key, {})
-                    self.state["tasks"][key] = {**prior, "app": app, "source": source.name,
-                        "source_sha": head, "event": event, "target": target.name,
-                        "status": "pending", "retry_count": 0}
+                    from lifecycle import enqueue_backport
+                    enqueue_backport(self, app, source.name, target.name, head)
         self.state["checkpoint"] = head
         self.save()
 
@@ -138,7 +140,9 @@ class Runner:
                 "target_sha": target_sha, "app": task["app"], "event": task["event"],
                 "strategy": "source_snapshot", "kind": kind}
         return (f"### App Title\n{task['app']}\n\n### Description\n"
-                f"Backport {task['source']} to {task['target']} at {version}.\n\n"
+                f"{task.get('operation', 'backport')} {task['source']} to {task['target']} at {version}.\n\n"
+                f"Job: `{task.get('id', 'legacy')}`; requester: `{task.get('actor', 'scheduled')}`\n\n"
+                f"{task.get('upgrade_description', '')}\n\n"
                 "The app directory is replaced by the selected source snapshot, including deletion of target-only files. "
                 "Other apps and repository files are unchanged. No upstream merge is performed by Haro.\n\n"
                 f"Source: https://github.com/{info['source_repo']}/commit/{info['source_sha']}\n\n"
@@ -159,6 +163,8 @@ class Runner:
             old_event = (metadata(pr.get("body")) or {}).get("event")
             if old_event == task["event"]:
                 task["status"] = "merged" if pr.get("merged_at") else "rejected"
+                task["merge_sha"] = pr.get("merge_commit_sha")
+                task["updated_at"] = time.time()
                 return
             task.pop("pr", None)
             task.pop("head", None)
@@ -194,7 +200,13 @@ class Runner:
             if self.apply and info.get("target_sha") != base:
                 self.api.status(target.fork, pr["head"]["sha"], "failure", "Target advanced; regenerate snapshot before review")
             if not pr.get("draft", True):
+                if info.get("target_sha") == base and info.get("source_sha") == src:
+                    self.git.verify(src, base, managed_head, app)
+                    task.update(status="awaiting_review", url=pr["html_url"])
+                    return
                 raise Error("PR is already in review; do not rewrite reviewed branch automatically")
+        if self.git.text("cat-file", "-t", src) != "commit" or not self.git.tree(src, app):
+            raise Error("selected source snapshot is unavailable or app is absent")
         if self.git.tree(src, app) == self.git.tree(base, app):
             if pr and self.apply:
                 self.api.request("PATCH", f"repos/{target.repo}/pulls/{pr['number']}", {"state": "closed"})
@@ -206,7 +218,15 @@ class Runner:
         kind, version = validate_app(self.git, src, base, app, self.login, rule)
         if pr and (metadata(pr.get("body")) or {}).get("kind") != kind:
             raise Error("PR type changed; close existing PR before creating a new type")
-        title = f"[{kind}][{app}][{version}] Backport from {source.name}"
+        manifest = yaml.safe_load(self.git.file(src, app + "/OlaresManifest.yaml") or b"{}") or {}
+        description = (manifest.get("spec") or {}).get("upgradeDescription", "")
+        if not isinstance(description, str):
+            description = ""
+        task["upgrade_description"] = description
+        suffix = task.get("requested_title") or " ".join(description.split()[:20])
+        title = f"[{kind}][{app}][{version}]" + (" " + suffix if suffix else "")
+        previous = yaml.safe_load(self.git.file(base, app + "/Chart.yaml") or b"{}") or {}
+        task.update(title=title, version=version, previous_version=str(previous.get("version", "absent")))
         msg = (title + f"\n\nHaro-Source: {source.repo}@{src}\nHaro-Target: {base}\n"
                f"Haro-App: {app}\nHaro-Event: {task['event']}\nHaro-Strategy: source_snapshot\n")
         if pr:
@@ -259,23 +279,32 @@ class Runner:
         self.open()
         try:
             self.fetch(sync_forks=not refresh_only and not explicit_app)
+            from lifecycle import tick, audit, blocks_maintenance, enqueue_backport
+            if not explicit_app:
+                tick(self)
             if explicit_app:
                 source = self.cfg.environment(source_name or self.cfg.envs[-1].name)
                 targets = [self.cfg.environment(n) for n in target_names] if target_names else [e for e in self.cfg.envs if e.level < source.level]
                 for target in targets:
                     if target.level >= source.level:
                         raise Error("backport target must be below source")
-                    key = target.name + "/" + app_name(explicit_app)
-                    sha = self.heads[source.name]
-                    self.state["tasks"][key] = {**self.state["tasks"].get(key, {}), "app": explicit_app, "source": source.name, "source_sha": sha,
-                        "event": self.git.text("log", "-1", "--format=%H", sha, "--", explicit_app),
-                        "target": target.name, "status": "pending", "retry_count": 0}
+                    enqueue_backport(self, app_name(explicit_app), source.name, target.name, self.heads[source.name])
             elif not refresh_only:
                 self.discover()
-            for key, task in self.state["tasks"].items():
+            # Completed old PRs can now release their deferred newer event.
+            for old in list(self.state["tasks"].values()):
+                if old.get("status") in {"merged", "rejected", "satisfied"} and old.get("next_event"):
+                    event = old.pop("next_event")
+                    enqueue_backport(self, event['app'], event['source'], event['target'], event['source_sha'], event.get('parent'))
+            for key, task in list(self.state["tasks"].items()):
                 if task.get("status") in {"merged", "rejected", "satisfied"}:
                     continue
                 if task.get("status") == "retry_exhausted":
+                    self.report["apps"].append(copy.deepcopy(task))
+                    continue
+                competing = blocks_maintenance(self, task)
+                if competing:
+                    task.update(status="waiting", warnings=competing)
                     self.report["apps"].append(copy.deepcopy(task))
                     continue
                 try:
@@ -289,6 +318,9 @@ class Runner:
                             task["status"] = "retry_exhausted"
                 self.save()
                 self.report["apps"].append(copy.deepcopy(task))
+            if not explicit_app:
+                audit(self)
+            self.report["operation"] = "backport" if explicit_app else ("refresh" if refresh_only else "run")
             return self.report
         finally:
             self.close()

@@ -23,7 +23,11 @@ def install(workspace):
         changes[router] = text
     text = agents.read_text()
     if '## Haro !app 维护入口' not in text:
-        changes[agents] = text + notice
+        text += notice
+    text = text.replace('实际 promote/publish 和 Market 精确查询尚未上线，原业务命令保留。',
+        '单应用 promote/publish、job/jobs 已上线；批量与仓库历史分发查询尚未上线。原业务命令保留。')
+    if text != agents.read_text():
+        changes[agents] = text
     backup = workspace / 'state/haro-maintenance/route-backups'
     backup.mkdir(parents=True, exist_ok=True)
     source = Path(__file__).parent / 'skills/app/SKILL.md'

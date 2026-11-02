@@ -337,3 +337,13 @@ GitHub PR 使用三点 diff，比较 merge base 到 head。创建时 C 的父提
 - [GitHub 分支比较](https://docs.github.com/en/pull-requests/reference/branches)：PR 使用三点比较，应处理目标推进导致的基线变化。
 
 临时 Git 实验已验证：`merge --squash -X theirs` 保留目标独有文件；源快照替换可得到相同应用 tree 并保留其他目录；目标推进后两种 diff 可以不同，从新目标重新生成后恢复一致。上述实验不代表已在真实仓库执行或部署维护功能。
+
+
+## 单应用发布增量（2026-11-02）
+
+本次落地单应用 promote/publish、自动标题、异步 job 和 job/jobs 查询；批量后续实现。
+每个应用跨环境操作独立记录，发起前展示同应用 active jobs，确认后才入队；Gitbot
+继续负责仓库端提交约束。发布 PR 合并后由十分钟心跳创建中间环境 backport，
+回流失败独立展示，不回滚或混淆已完成发布。每日同时复查失败任务涉及的仓库
+内容，不以扫描检查点推进作为一致性成功。所有操作针对 GitHub；历史分发查询
+也是仓库历史解析，不调用 Olares Market 服务。

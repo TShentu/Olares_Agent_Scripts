@@ -293,6 +293,16 @@ class GitTests(unittest.TestCase):
         self.assertEqual(task["status"], "rejected")
         self.assertEqual(r.api.creates, 1)
 
+    def test_current_ready_pr_remains_awaiting_review(self):
+        r, task = self.runner_task()
+        r.process(task)
+        old_head = task['head']
+        r.api.pr['draft'] = False
+        r.process(task)
+        self.assertEqual(task['status'], 'awaiting_review')
+        self.assertEqual(task['head'], old_head)
+        self.assertEqual(r.api.creates, 1)
+
     def test_stale_ready_pr_is_marked_failed_not_rewritten(self):
         r, task = self.runner_task()
         r.process(task)
@@ -309,6 +319,180 @@ class GitTests(unittest.TestCase):
         r.process(task)
         self.git.verify(self.source, self.base, task["head"], "app")
         self.assertEqual(r.api.creates, 1)
+
+    def release_runner(self):
+        import lifecycle
+        r, task = self.runner_task()
+        raw = sample(self.root)
+        raw['preview'] = {**raw['test'], 'github': 'https://github.com/f/preview', 'upstream': 'https://github.com/u/preview'}
+        (self.root/'config.yaml').write_text(yaml.safe_dump(raw))
+        r.cfg = Config(self.root/'config.yaml')
+        r.state = {'schema': 1, 'checkpoint': self.base, 'tasks': {}, 'jobs': {}}
+        r.report = {'apps': [], 'errors': []}
+        r.heads = {'test': self.source, 'preview': self.target, 'prod': self.target}
+        r.open = lambda: None
+        r.close = lambda: None
+        r.fetch = lambda **kw: None
+        request = r.api.request
+        r.api.request = lambda method, path, data=None: {'sha': self.source} if method == 'GET' else request(method, path, data)
+        return r
+
+    def test_release_submit_queues_and_deduplicates_message(self):
+        from lifecycle import submit
+        r = self.release_runner()
+        first = submit(r, 'publish', 'app', 'test', 'feishu:user', request_id='msg1')
+        j = first['job']; self.assertEqual(j['status'], 'queued')
+        self.assertEqual(j['target'], 'prod')
+        self.assertEqual(j['backport_after_merge'], ['preview'])
+        self.assertEqual(r.api.creates, 0)
+        again = submit(r, 'publish', 'app', 'test', 'feishu:user', request_id='msg1')
+        self.assertTrue(again['duplicate'])
+        self.assertEqual(again['job']['id'], j['id'])
+        with self.assertRaises(Error):
+            submit(r, 'promote', 'app', 'test', 'feishu:user', request_id='msg1')
+
+    def test_concurrent_app_requests_require_current_acknowledgement(self):
+        from lifecycle import submit
+        r = self.release_runner()
+        one = submit(r, 'promote', 'app', 'test', 'feishu:u', request_id='one')['job']
+        two = submit(r, 'publish', 'app', 'test', 'feishu:u', request_id='two')
+        self.assertEqual(two['status'], 'confirmation_required')
+        self.assertEqual(len(r.state['jobs']), 1)
+        accepted = submit(r, 'publish', 'app', 'test', 'feishu:u', ack=[one['id']], request_id='two')
+        self.assertEqual(accepted['job']['status'], 'queued')
+        self.assertEqual(len(r.state['jobs']), 2)
+
+    def test_background_launch_failure_preserves_queued_job(self):
+        import lifecycle
+        r = self.release_runner()
+        config = self.root/'config.yaml'
+        raw = yaml.safe_load(config.read_text()); raw['auth'] = {'github_token': 'test'}
+        raw['maintenance'] = {'enabled': True}; config.write_text(yaml.safe_dump(raw))
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['lifecycle', '--config', str(config), 'publish', 'app', '--from', 'test', '--actor', 'feishu:u', '--apply']), patch('maintenance.Runner', return_value=r), patch.object(lifecycle, 'GitHub', return_value=r.api), patch.object(lifecycle.subprocess, 'Popen', side_effect=OSError('spawn failed')), redirect_stdout(output):
+            self.assertEqual(lifecycle.main(), 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['job']['status'], 'queued')
+        self.assertIn(result['job']['id'], r.state['jobs'])
+        self.assertIn('heartbeat', result['worker'])
+
+    def test_release_dry_run_creates_no_remote_pr_or_job(self):
+        from lifecycle import submit
+        r = self.release_runner(); r.apply = False
+        result = submit(r, 'publish', 'app', 'test', 'feishu:u')
+        self.assertEqual(result['job']['status'], 'would_create_or_refresh_pr')
+        self.assertEqual(r.state['jobs'], {})
+        self.assertEqual(r.api.creates, 0)
+
+    def test_release_uses_snapshot_title_and_version(self):
+        r, task = self.runner_task()
+        self.cmd('checkout', 'source')
+        self.write('app/OlaresManifest.yaml', 'metadata:\n  version: 2.0.0\nspec:\n  upgradeDescription: Adds reliable jobs\n')
+        sha = self.commit('description')
+        self.git.run('fetch', str(self.work), '+refs/heads/source:refs/heads/source')
+        task.update(source_sha=sha, operation='publish', requested_title=None)
+        r.process(task)
+        self.assertEqual(r.api.pr['title'], '[UPDATE][app][2.0.0] Adds reliable jobs')
+        self.assertIn('Adds reliable jobs', r.api.pr['body'])
+        self.assertEqual(task['previous_version'], '1.0.0')
+
+    def test_merge_dispatch_uses_actual_merge_and_daily_deduplicates(self):
+        from lifecycle import followup, enqueue_backport
+        r = self.release_runner(); r.base = self.source
+        job = {'id': 'release1', 'operation': 'publish', 'app': 'app', 'source': 'test',
+               'target': 'prod', 'status': 'merged', 'merge_sha': self.source,
+               'backport_after_merge': ['preview']}
+        followup(r, job)
+        child = r.state['tasks']['preview/app']
+        self.assertEqual(child['source_sha'], self.source)
+        self.assertEqual(job['children']['preview'], child['id'])
+        again = enqueue_backport(r, 'app', 'prod', 'preview', self.source)
+        self.assertEqual(child['id'], again['id'])
+        self.assertEqual(len(r.state['tasks']), 1)
+
+    def test_unmerged_closed_release_does_not_backport(self):
+        from lifecycle import followup
+        r = self.release_runner()
+        job = {'id': 'release1', 'app': 'app', 'target': 'prod', 'status': 'rejected',
+               'backport_after_merge': ['preview']}
+        followup(r, job)
+        self.assertEqual(r.state['tasks'], {})
+
+    def test_followup_failure_keeps_merged_and_audits_until_consistent(self):
+        from lifecycle import followup, audit
+        r = self.release_runner()
+        job = {'id': 'release1', 'operation': 'publish', 'app': 'app', 'source': 'test',
+               'target': 'prod', 'status': 'merged', 'merge_sha': None,
+               'backport_after_merge': ['preview']}
+        r.state['jobs']['release1'] = job
+        r.heads['prod'] = self.source
+        followup(r, job); audit(r)
+        self.assertEqual(job['status'], 'merged')
+        self.assertEqual(job['followup_status'], 'needs_engineer')
+        self.assertEqual(job['consistency'][0]['status'], 'needs_engineer')
+        r.heads['preview'] = self.source
+        audit(r)
+        self.assertEqual(job['followup_status'], 'complete')
+
+    def test_new_production_update_supersedes_merge_snapshot(self):
+        from lifecycle import followup
+        r = self.release_runner(); r.base = self.source
+        job = {'id': 'release1', 'app': 'app', 'target': 'prod', 'status': 'merged',
+               'merge_sha': self.base, 'backport_after_merge': ['preview']}
+        followup(r, job)
+        self.assertEqual(r.state['tasks']['preview/app']['source_sha'], self.source)
+        self.assertEqual(job['followup_superseded_by'], self.source)
+
+    def test_pending_backport_not_overwritten_by_new_event(self):
+        from lifecycle import enqueue_backport
+        r = self.release_runner()
+        old = enqueue_backport(r, 'app', 'prod', 'preview', self.base)
+        old.update(pr=12, status='awaiting_review')
+        deferred = enqueue_backport(r, 'app', 'prod', 'preview', self.source)
+        self.assertEqual(deferred['id'], old['id'])
+        self.assertEqual(old['source_sha'], self.base)
+        self.assertEqual(old['next_event']['source_sha'], self.source)
+        old['status'] = 'merged'
+        new = enqueue_backport(r, 'app', 'prod', 'preview', self.source)
+        self.assertNotEqual(old['id'], new['id'])
+        self.assertEqual(r.state['task_history'][0]['id'], old['id'])
+
+    def test_closed_release_tracks_actual_merge_sha(self):
+        r, task = self.runner_task()
+        task['operation'] = 'publish'
+        r.process(task)
+        r.api.pr.update(state='closed', merged_at='now', merge_commit_sha=self.source)
+        r.process(task)
+        self.assertEqual(task['status'], 'merged')
+        self.assertEqual(task['merge_sha'], self.source)
+
+    def test_waiting_release_does_not_rewrite_active_backport(self):
+        from lifecycle import tick
+        r = self.release_runner()
+        r.state['tasks']['prod/app'] = {'app': 'app', 'target': 'prod', 'status': 'awaiting_review', 'pr': 1}
+        r.state['jobs']['j'] = {'id': 'j', 'app': 'app', 'source': 'test', 'target': 'prod',
+                              'status': 'queued', 'created_at': 1}
+        tick(r)
+        self.assertEqual(r.state['jobs']['j']['status'], 'waiting')
+        self.assertEqual(r.api.creates, 0)
+
+
+    def test_needs_attention_release_still_detects_later_merge(self):
+        from lifecycle import tick
+        r = self.release_runner()
+        r.state['jobs']['j'] = {'id': 'j', 'operation': 'publish', 'app': 'app', 'source': 'test',
+            'target': 'prod', 'status': 'needs_attention', 'pr': 9, 'created_at': 1, 'error': 'old'}
+        r.api.get_pr = lambda *args: {'state': 'closed', 'merged_at': 'now', 'merge_commit_sha': self.source}
+        tick(r)
+        self.assertEqual(r.state['jobs']['j']['status'], 'merged')
+        self.assertNotIn('error', r.state['jobs']['j'])
+
+    def test_absent_source_app_never_reported_satisfied(self):
+        r, task = self.runner_task()
+        task['app'] = 'missing'
+        with self.assertRaisesRegex(Error, 'app is absent'):
+            r.process(task)
+
 
 
 class SemverTests(unittest.TestCase):
@@ -345,6 +529,22 @@ class SchedulerTests(unittest.TestCase):
             with patch.object(sys, "argv", ["scheduled", "--config", str(config), "refresh"]), patch.object(scheduled.subprocess, "run", return_value=reply), redirect_stdout(output):
                 self.assertEqual(scheduled.main(), 0)
                 self.assertEqual(output.getvalue().strip(), "NO_REPLY")
+
+
+    def test_job_only_failure_is_not_suppressed(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); config = root/'config.yaml'
+            config.write_text(yaml.safe_dump(sample(root))); (root/'state').mkdir()
+            job = {'id': 'j', 'app': 'app', 'source': 'test', 'target': 'prod', 'status': 'merged',
+                   'followup_status': 'needs_engineer', 'consistency': [{'target': 'preview', 'status': 'needs_engineer'}]}
+            reply = subprocess.CompletedProcess([], 0, json.dumps({'apps': [], 'jobs': [job]}), '')
+            output = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'refresh']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 0)
+            self.assertIn('需工程师检查', output.getvalue())
+            self.assertIn('Job j', output.getvalue())
+
 
 
 if __name__ == "__main__":

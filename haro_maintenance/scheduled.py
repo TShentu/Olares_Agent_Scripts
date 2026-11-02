@@ -31,7 +31,8 @@ def main():
         print("NO_REPLY")
         return 0
     tasks = result.get("apps", [])
-    stable = {"apps": [{k: t.get(k) for k in ("app", "target", "status", "error", "url")} for t in tasks],
+    jobs = result.get("jobs", [])
+    stable = {"jobs": [{k: j.get(k) for k in ("id", "status", "error", "url", "followup_status", "followup_error", "children")} for j in jobs], "apps": [{k: t.get(k) for k in ("app", "target", "status", "error", "url")} for t in tasks],
               "errors": result.get("errors", []), "error": result.get("error")}
     digest = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
     memo = cfg.root / "notification.json"
@@ -39,7 +40,7 @@ def main():
     if a.mode == "refresh" and digest == previous.get("digest"):
         print("NO_REPLY")
         return r.returncode
-    if a.mode == "refresh" and not tasks and not result.get("error") and not result.get("errors"):
+    if a.mode == "refresh" and not tasks and not jobs and not result.get("error") and not result.get("errors"):
         print("NO_REPLY")
         return r.returncode
     lines = ["Haro 仓库维护 " + ("完成" if r.returncode == 0 else "需要处理")]
@@ -49,6 +50,13 @@ def main():
         lines.append(f"{f['environment']}: {f['status']}")
     for t in tasks[:30]:
         lines.append(f"{t['app']} → {t['target']}: {t['status']} {t.get('url', '')} {t.get('error', '')}")
+    for j in jobs[-30:]:
+        lines.append(f"Job {j['id']} {j['app']} {j['source']} → {j['target']}: {j['status']} {j.get('url', '')} {j.get('error', '')}")
+        if j.get("followup_status"):
+            lines.append(f"回流: {j['followup_status']} {j.get('followup_error', '')}")
+        for c in j.get("consistency", []):
+            if c['status'] == 'needs_engineer':
+                lines.append(f"需工程师检查 {j['app']} → {c['target']}: 仓库内容仍不一致 {c.get('error') or ''}")
     for e in result.get("errors", []):
         lines.append(str(e))
     if result.get("error"):
