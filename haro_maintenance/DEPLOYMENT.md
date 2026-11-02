@@ -1,7 +1,7 @@
 # Haro maintenance and lifecycle deployment
 
 Deployment date: 2026-11-02. Target: `hzfysttq.olares.com`, OpenClaw 2026.10.1.
-Source release: `9b44134b905cd7afd8aa71bfb9a8dda6b04613d4` on
+Source release: `3d208bbd9bee947e1cb3e8126156a97840af2d95` on
 `feat/haro-maintenance`. Code review: https://github.com/TShentu/Olares_Agent_Scripts/pull/2.
 
 ## Installed scope
@@ -52,7 +52,7 @@ that an existing running file was replaced. Never overwrite private config or ba
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-lifecycle-9b44134.secret.yaml` under the
+Private single-file export: `backups/haro-lifecycle-3d208bb.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
@@ -110,3 +110,8 @@ and returned the implemented command list; no session reset was needed.
   application was published or merged just for deployment validation.
 - The user's existing Feishu direct session was reset through the official gateway
   API after it retained stale help context. Persistent jobs/repository state are intact.
+
+Final integration: the refreshed Feishu session returned the new release/job help
+and executed per-app jobs queries successfully. Query guidance was tightened to
+use only durable operation records, not cron inventory. Concurrent route installation
+was also verified after replacing shared temporary filenames with unique files.
