@@ -126,3 +126,11 @@ task history. Full legacy Haro restoration remains a later migration stage.
 Rollback: disable `haro-maintenance:run` and `haro-maintenance:refresh`, then restore
 the backed-up legacy fork-sync configuration and job. Keep recovery state and PRs for
 audit. Do not reset app repos or delete human branches. No upstream PR was auto-merged.
+
+## Feishu !app entrypoint
+
+Bootstrap installs `!app` into the existing `olares-commands` router and updates
+AGENTS.md, preserving prior content with hash-named backups. Start with `!app help`.
+Implemented commands: `config`, `status`, `sync`, `refresh`, `backport`, and `route`.
+Write operations require explicit `--apply`; `route promote/publish` only resolves
+targets. Actual promote/publish and Market history queries are not implemented.

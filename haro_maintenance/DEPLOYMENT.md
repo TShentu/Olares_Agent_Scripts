@@ -1,7 +1,7 @@
 # Haro phase one deployment
 
 Deployment date: 2026-11-02. Target: `hzfysttq.olares.com`, OpenClaw 2026.10.1.
-Source release: `8c009b9fbfb8c902e834780cd216e8f172b9a2cc` on
+Source release: `67f12f6` on
 `feat/haro-maintenance`. Code review: https://github.com/TShentu/Olares_Agent_Scripts/pull/2.
 
 ## Installed scope
@@ -52,7 +52,7 @@ that an existing running file was replaced. Never overwrite private config or ba
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-maintenance-three-env.secret.yaml` under the
+Private single-file export: `backups/haro-maintenance-app-route.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
@@ -77,3 +77,14 @@ migrating to the dedicated three-environment recovery branch; adding preview doe
 not trigger a bulk backport of historical differences. Existing business scripts
 and their separate configs remain unchanged. Daily maintenance now includes all
 three forks, and new production changes target both lower environments.
+
+## !app routing
+
+Installed `commands/app/SKILL.md`, added the exact `!app` route to
+`olares-commands`, and added a capability notice to AGENTS.md. Previous contents
+are backed up under workspace `state/haro-maintenance/route-backups`. Bootstrap
+reinstalls the integration idempotently. Existing business routes are preserved.
+
+Verified `!app help` on the existing Feishu direct session through the Gateway
+agent runner, without channel delivery. The session loaded the new command skill
+and returned the implemented command list; no session reset was needed.
