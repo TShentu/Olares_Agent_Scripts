@@ -81,6 +81,15 @@ class Config:
         if len({(e.fork, e.branch) for e in self.envs}) != len(self.envs):
             raise Error("environments must not share the same fork branch")
         self.maintenance = self.raw.get("maintenance") or {}
+        fork_sync = self.maintenance.get("fork_sync") or {}
+        if fork_sync.get("mode", "mirror_upstream") != "mirror_upstream" or fork_sync.get("preserve_divergent_head", True) is not True:
+            raise Error("fork sync requires mirror_upstream and divergent-head preservation")
+        recovery = self.raw.get("recovery") or {}
+        if recovery.get("repository"):
+            repo_slug("https://github.com/" + recovery["repository"])
+            branch = recovery.get("branch", "haro-maintenance-state")
+            if branch in {"main", "master"} or branch in {e.branch for e in self.envs} or not re.fullmatch(r"haro[-/][A-Za-z0-9_/-]+", branch):
+                raise Error("recovery branch must be a dedicated haro-* branch, never a publication branch")
         for key, expected in (("strategy", "source_snapshot"), ("delivery", "draft_pr"), ("scope", "changed_apps")):
             if (self.maintenance.get("backport") or {}).get(key, expected) != expected:
                 raise Error("unsupported backport " + key)

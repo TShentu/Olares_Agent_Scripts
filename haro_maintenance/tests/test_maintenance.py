@@ -82,6 +82,11 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(Error):
             self.load()
 
+    def test_recovery_cannot_write_publication_branch(self):
+        self.raw["recovery"] = {"repository": "f/state", "branch": "main"}
+        with self.assertRaises(Error):
+            self.load()
+
 
 class GitTests(unittest.TestCase):
     def setUp(self):
@@ -260,6 +265,22 @@ class GitTests(unittest.TestCase):
         r.api.lose_create_response = True
         r.process(task)
         self.assertEqual(task["pr"], 1)
+        self.assertEqual(r.api.creates, 1)
+
+    def test_unknown_push_response_is_reconciled(self):
+        r, task = self.runner_task()
+        r.process(task)
+        r.base = self.base
+        push = self.git.push
+        def lost(*args):
+            push(*args)
+            raise Error("git push failed (exit 128)")
+        self.git.push = lost
+        with self.assertRaises(Error):
+            r.process(task)
+        self.git.push = push
+        r.process(task)
+        self.assertEqual(task["status"], "awaiting_review")
         self.assertEqual(r.api.creates, 1)
 
     def test_closed_event_is_not_reopened(self):

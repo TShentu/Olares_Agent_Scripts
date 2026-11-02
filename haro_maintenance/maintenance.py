@@ -128,7 +128,7 @@ class Runner:
                     prior = self.state["tasks"].get(key, {})
                     self.state["tasks"][key] = {**prior, "app": app, "source": source.name,
                         "source_sha": head, "event": event, "target": target.name,
-                        "status": "pending"}
+                        "status": "pending", "retry_count": 0}
         self.state["checkpoint"] = head
         self.save()
 
@@ -182,13 +182,14 @@ class Runner:
         if pr:
             if pr["head"].get("repo", {}).get("full_name", "").lower() != target.fork.lower() or pr["base"]["ref"] != target.branch:
                 raise Error("unexpected PR head/base repository")
-            if task.get("head") and pr["head"]["sha"] != task["head"]:
+            known_heads = {task.get("head"), task.get("pending_head")} - {None}
+            if pr["head"]["sha"] not in known_heads:
                 raise Error("PR branch was changed outside Haro; manual review required")
             managed_head = self.git.fetch(target.github, branch, "refs/haro/pr/" + target.name + "/" + app)
             info = metadata(pr.get("body")) or {}
-            recorded = task.get("head") or task.get("pending_head")
-            if not recorded or managed_head != recorded:
+            if managed_head not in known_heads:
                 raise Error("PR head is not the durably recorded managed commit")
+            task["head"] = managed_head
             info = metadata(pr.get("body")) or {}
             if self.apply and info.get("target_sha") != base:
                 self.api.status(target.fork, pr["head"]["sha"], "failure", "Target advanced; regenerate snapshot before review")
@@ -268,17 +269,24 @@ class Runner:
                     sha = self.heads[source.name]
                     self.state["tasks"][key] = {**self.state["tasks"].get(key, {}), "app": explicit_app, "source": source.name, "source_sha": sha,
                         "event": self.git.text("log", "-1", "--format=%H", sha, "--", explicit_app),
-                        "target": target.name, "status": "pending"}
+                        "target": target.name, "status": "pending", "retry_count": 0}
             elif not refresh_only:
                 self.discover()
             for key, task in self.state["tasks"].items():
                 if task.get("status") in {"merged", "rejected", "satisfied"}:
+                    continue
+                if task.get("status") == "retry_exhausted":
+                    self.report["apps"].append(copy.deepcopy(task))
                     continue
                 try:
                     task.pop("error", None)
                     self.process(task)
                 except Error as ex:
                     task.update(status="blocked", error=str(ex))
+                    if str(ex).startswith(("git ", "GitHub transport", "GitHub HTTP 5", "GitHub HTTP 429")):
+                        task["retry_count"] = task.get("retry_count", 0) + 1
+                        if task["retry_count"] >= 3:
+                            task["status"] = "retry_exhausted"
                 self.save()
                 self.report["apps"].append(copy.deepcopy(task))
             return self.report
@@ -331,7 +339,7 @@ def main():
                     args.to.split(",") if getattr(args, "to", None) else None, args.command == "refresh")
                 atomic_json(cfg.root / "latest-report.json", result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0 if not result.get("errors") and not any(t.get("status") == "blocked" for t in result.get("apps", [])) else 2
+        return 0 if not result.get("errors") and not any(t.get("status") in {"blocked", "retry_exhausted"} for t in result.get("apps", [])) else 2
     except (Error, OSError, ValueError) as ex:
         # Exceptions must not echo configuration secrets.
         message = str(ex) if isinstance(ex, Error) else type(ex).__name__

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import time
 
@@ -48,6 +49,14 @@ def install(cfg, apply=False):
             result.append({"mode": mode, "result": r})
         else:
             result.append({"mode": mode, "schedule": expr, "command": command, "existing": bool(matched)})
+    if apply:
+        workspace = Path((cfg.raw.get("runtime") or {}).get("openclaw_workspace", str(Path.home() / ".openclaw/workspace")))
+        skill = workspace / "skills/haro-reconcile"
+        if skill.exists() and not (skill / "runtime.json").exists():
+            raise Error("existing unowned haro-reconcile skill; refusing overwrite")
+        shutil.copytree(Path(__file__).parent / "skills/haro-reconcile", skill, dirs_exist_ok=True)
+        (skill / "runtime.json").write_text(json.dumps({"script": str(Path(__file__).with_name("maintenance.py").resolve()), "config": str(cfg.path)}, indent=2))
+        result.append({"skill": str(skill)})
     return result
 
 
