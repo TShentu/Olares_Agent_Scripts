@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import shutil
+import tempfile
 
 
 def install(workspace):
@@ -41,8 +42,10 @@ def install(workspace):
             if not saved.exists():
                 saved.write_bytes(raw)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix('.app-route.tmp')
-        tmp.write_text(text)
+        with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, prefix='.app-route-', delete=False) as f:
+            f.write(text)
+            tmp = Path(f.name)
+        tmp.chmod(0o644)
         tmp.replace(path)
     return {'route': '!app', 'workspace': str(workspace), 'backup': str(backup)}
 
