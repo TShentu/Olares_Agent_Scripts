@@ -59,6 +59,8 @@ def install(cfg, apply=False):
         shutil.copytree(Path(__file__).parent / "skills/haro-reconcile", skill, dirs_exist_ok=True)
         (skill / "runtime.json").write_text(json.dumps({"script": str(Path(__file__).with_name("maintenance.py").resolve()), "config": str(cfg.path)}, indent=2))
         result.append({"skill": str(skill)})
+        from install_app_route import install as install_app_route
+        result.append(install_app_route(workspace))
     return result
 
 
