@@ -22,11 +22,17 @@ def install(workspace):
         text += '\n`!app` 按完整 token 匹配；`!appstore` 不匹配。帮助和可用子命令以 `commands/app/SKILL.md` 为准。\n'
         assert route in text
         changes[router] = text
+    sync_note = '\n!app sync 默认仅 spec.submitter=Olares 的应用回流到 preview/test；--preview 仅 preview；--preview --all 才包含全部应用。单独 --all 拒绝，手动 sync 不同步 fork 主分支。\n'
+    if sync_note.strip() not in text:
+        text += sync_note
+        changes[router] = text
     text = agents.read_text()
     if '## Haro !app 维护入口' not in text:
         text += notice
     text = text.replace('实际 promote/publish 和 Market 精确查询尚未上线，原业务命令保留。',
         '单应用 promote/publish、job/jobs 已上线；批量与仓库历史分发查询尚未上线。原业务命令保留。')
+    if sync_note.strip() not in text:
+        text += sync_note
     if text != agents.read_text():
         changes[agents] = text
     backup = workspace / 'state/haro-maintenance/route-backups'
