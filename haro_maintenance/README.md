@@ -175,15 +175,26 @@ A ready PR whose base is still current remains awaiting review. A stale ready PR
 flagged for review rather than rewritten. Failed release execution retries up to three
 times, then remains visible as needs_attention; known PRs still get merge/close checks.
 
-## Sync scope
+## Sync scope and submitter
 
-`!app sync` defaults to `--all`: synchronize configured forks, discover production
-updates for all lower environments, and maintain existing jobs. `!app sync --preview`
-only discovers/processes prod-to-preview backports; no fork main, test task or
-release job is modified. Both modes default to dry-run; add `--apply` to write PRs.
-The flags are mutually exclusive, and missing preview is an error.
+- `!app sync`: only `spec.submitter: Olares`, from prod to configured lower environments (preview/test).
+- `!app sync --preview`: only Olares apps, prod to preview.
+- `!app sync --preview --all`: all submitters, prod to preview only.
+- `!app sync --all` is rejected; all third-party apps must not be sent to test implicitly.
 
-Target-specific checkpoints are initialized from the legacy shared checkpoint before
-any selective advance. A preview-only run cannot consume test's undiscovered updates.
-This remains incremental discovery plus existing target tasks, not a full historical
-backfill. The scheduled daily run keeps the default all-environment behavior.
+All default to preflight; add --apply for single-app backport Draft PR processing.
+The filter reads the static `spec.submitter` field without evaluating Helm templates;
+missing/unreadable values are excluded, not inferred from developer/owners/commit author.
+For .remove entries, the most recent historical Manifest supplies the submitter.
+Test's newer development version is reported as target_ahead without a backport;
+equal-version different content remains subject to existing version checks.
+
+Manual sync only invokes per-app backport logic: it does not mirror fork main or run
+release jobs. The scheduled daily runner uses the internal --maintenance flag to keep
+fork synchronization and release job monitoring, with Olares-only auto discovery.
+Existing unclassified automatic tasks are filtered too, including during refresh.
+Explicit single-app backports and release-follow-up children retain their explicit scope.
+
+`sync_checkpoints[target][olares|all]` migrates from legacy per-target/shared checkpoints
+before either selector advances. Choosing Olares first does not consume future all-app
+preview updates. This remains incremental discovery, not historical full backfill.

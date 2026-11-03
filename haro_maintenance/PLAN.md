@@ -355,3 +355,11 @@ GitHub PR 使用三点 diff，比较 merge base 到 head。创建时 C 的父提
 `--preview` 仅 prod → preview 增量回流及该方向已有任务，不操作 test、fork main 或其他发布 jobs。
 两参数互斥；未配置 preview 明确报错。检查点按回流目标保存，旧共享检查点先复制给各目标再分别推进，避免漏掉 test 的更新。
 两种模式默认预检查，`--apply` 才写入；不隐式进行历史差异全量回灌。
+
+
+## 2026-11-03 Submitter 范围修订（替代此前 sync 参数语义）
+
+仅保留 `sync`（Olares → preview/test）、`sync --preview`（Olares → preview）和 `sync --preview --all`（全部 Submitter → preview）。单独 --all 拒绝。
+读取 spec.submitter，缺失不推断；回流复用单应用引擎。test 开发版本领先则报告 target_ahead，不覆盖。
+手动 sync 不同步 fork main 或推进发布 jobs；每日维护保留 fork sync，应用自动扫描默认仅 Olares。
+旧自动任务在 refresh 也过滤；显式单应用 backport 与发布关联任务保留授权范围。按目标×应用筛选独立记录增量检查点。

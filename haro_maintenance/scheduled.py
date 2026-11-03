@@ -35,7 +35,7 @@ def main():
     cfg = Config(a.config)
     try:
         r = subprocess.run([sys.executable, str(Path(__file__).with_name("maintenance.py")),
-                            "--config", str(cfg.path), a.mode, "--apply"], capture_output=True, text=True, timeout=1400)
+                            "--config", str(cfg.path), a.mode, "--apply"] + (["--maintenance"] if a.mode == "run" else []), capture_output=True, text=True, timeout=1400)
     except subprocess.TimeoutExpired:
         print("Haro 仓库维护超时；请检查记录，不要直接重跑未知写入。")
         return 1

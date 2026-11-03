@@ -12,10 +12,10 @@ description: Handle !app help and implemented Haro repository maintenance comman
 |---|---|---|
 | `!app config` | `config` | 脱敏环境配置及等级 |
 | `!app status` | `status` | 最近一次维护报告，注明报告时间，不冒充实时应用状态 |
-| `!app sync` / `!app sync --all` | `run --all` | 所有环境 fork 同步及生产新增更新向低等级回流预检查 |
-| `!app sync --preview` | `run --preview` | 仅 prod → preview 新增更新回流预检查 |
-| `!app sync --all --apply` | `run --all --apply` | 所有环境同步；省略 --all 等价 |
-| `!app sync --preview --apply` | `run --preview --apply` | 仅处理 prod → preview 回流 Draft PR |
+| `!app sync` | `run` | Submitter 为 Olares 的应用从 prod 到 preview/test 的回流预检查 |
+| `!app sync --preview` | `run --preview` | 仅 Olares 应用 prod → preview |
+| `!app sync --preview --all` | `run --preview --all` | 全部应用 prod → preview |
+| 上述 sync 命令加 `--apply` | 同名参数加 `--apply` | 逐个应用调用 backport 引擎创建/更新 Draft PR |
 | `!app refresh` | `refresh` | 已跟踪 PR 的预检查 |
 | `!app refresh --apply` | `refresh --apply` | 刷新已跟踪 PR，不发现新更新或同步 fork |
 | `!app backport <app> --from prod --to preview,test` | `backport <app> --from prod --to preview,test` | 指定应用完整目录回流预检查 |
@@ -31,8 +31,12 @@ description: Handle !app help and implemented Haro repository maintenance comman
 
 `--apply` 明确授权该次写入，普通命令默认预检查。命令输出需确认退出状态，不能把
 计划操作说成已执行。预检查无 GitHub 写入，但会更新本地缓存与报告。
-sync 默认 --all，--all 与 --preview 互斥；不接受 `sync --env`。
---preview 仅从 prod 回写 preview，不同步任何 fork 的 main、不操作 test，也不推进其他发布 jobs。未配置 preview 时明确报错，不回退到 --all。两种范围各自保留目标检查点；仍是增量扫描，不是历史差异全量回灌。
+sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的应用，不按 developer、owners 或 GitHub 提交人判断。
+`--all` 是全部应用筛选，仅允许与 `--preview` 同时使用；单独 `!app sync --all` 必须报错并显示三个合法用法，不能自动回退或替用户加 --preview。
+手动 sync 不同步 fork main，不推进其他发布 jobs。preview 未配置时 --preview 报错；默认模式按已配置低等级环境执行。
+默认 prod → test 是一致性检查；test 已有更高开发版本时返回 target_ahead，不创建覆盖 PR。相同版本但内容不同继续遵循版本校验，不自动降级或改版本。
+检查点按目标和 Olares/全部应用分别保存；--all 表示全部 Submitter 范围，不表示历史差异全量回灌。`--maintenance` 是定时任务内部参数，不能通过聊天透传。
+
 
 帮助必须明确：批量发布、`show/list/count/diff` 仓库历史分发查询、`update/suspend/resume/remove` 新入口、`conflicts` 专用查询尚未上线。
 路由查看不发布应用。原 `!push_app`、`!mod_app` 等指令保留，不自动重定向。

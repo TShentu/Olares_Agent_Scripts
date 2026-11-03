@@ -100,14 +100,14 @@ class GitTests(unittest.TestCase):
         self.cmd("config", "user.name", "Test")
         self.cmd("config", "user.email", "test@example.invalid")
         self.write("app/Chart.yaml", "version: 1.0.0\n")
-        self.write("app/OlaresManifest.yaml", "metadata:\n  version: 1.0.0\n")
+        self.write("app/OlaresManifest.yaml", "metadata:\n  version: 1.0.0\nspec:\n  submitter: Olares\n")
         self.write("app/owners", "tester\n")
         self.write("other/file", "keep")
         self.base = self.commit("base")
         self.cmd("checkout", "-qb", "source")
         self.write("app/config", "source\n")
         self.write("app/Chart.yaml", "version: 2.0.0\n")
-        self.write("app/OlaresManifest.yaml", "metadata:\n  version: 2.0.0\n")
+        self.write("app/OlaresManifest.yaml", "metadata:\n  version: 2.0.0\nspec:\n  submitter: Olares\n")
         (self.work / "app/binary").write_bytes(b"\0\xff")
         self.write("app/executable", "hello")
         (self.work / "app/executable").chmod(0o755)
@@ -206,7 +206,7 @@ class GitTests(unittest.TestCase):
         self.assertTrue(runner.report["baseline"])
         self.assertEqual(runner.state["tasks"], {})
         runner.state["checkpoint"] = self.base
-        runner.state.pop("checkpoints", None)
+        runner.state.pop("sync_checkpoints", None)
         runner.discover()
         self.assertEqual(list(runner.state["tasks"]), ["test/app"])
 
@@ -343,12 +343,12 @@ class GitTests(unittest.TestCase):
         r.apply = False
         r.heads = {'prod': self.source, 'preview': self.target, 'test': self.target}
         r.discover([r.cfg.environment('preview')])
-        self.assertEqual(r.state['checkpoints'], {'test': self.base, 'preview': self.source})
+        self.assertEqual(r.state['sync_checkpoints'], {'test': {'olares': self.base, 'all': self.base}, 'preview': {'olares': self.source, 'all': self.base}})
         self.assertEqual(set(r.state['tasks']), {'preview/app'})
         self.assertEqual(r.state['checkpoint'], self.base)
         r.discover()
         self.assertEqual(set(r.state['tasks']), {'preview/app', 'test/app'})
-        self.assertEqual(r.state['checkpoints']['test'], self.source)
+        self.assertEqual(r.state['sync_checkpoints']['test']['olares'], self.source)
 
     def test_preview_run_does_not_process_other_targets_or_release_jobs(self):
         r = self.release_runner()
@@ -377,8 +377,55 @@ class GitTests(unittest.TestCase):
         self.assertEqual(parser().parse_args(['run']).scope, 'all')
         self.assertEqual(parser().parse_args(['run', '--all']).scope, 'all')
         self.assertEqual(parser().parse_args(['run', '--preview', '--apply']).scope, 'preview')
-        with patch('sys.stderr', new=io.StringIO()), self.assertRaises(SystemExit):
-            parser().parse_args(['run', '--preview', '--all'])
+        args = parser().parse_args(['run', '--preview', '--all'])
+        self.assertTrue(args.all_apps)
+        r = self.release_runner()
+        with self.assertRaisesRegex(Error, '--all requires --preview'):
+            r.run(all_apps=True)
+
+    def test_submitter_field_ignores_helm_elsewhere_and_developer(self):
+        from gitops import manifest_field
+        raw = b'metadata:\n  version: 2.0.0\nspec:\n  developer: Olares\n  submitter: "Community"\n  upgradeDescription: |\n    first line\n    second line\nresource:\n  {{ if .Values.x }}\n  memory: 1Gi\n  {{ end }}\n'
+        self.assertEqual(manifest_field(raw, 'spec', 'submitter'), 'Community')
+        self.assertEqual(manifest_field(raw, 'metadata', 'version'), '2.0.0')
+        self.assertEqual(manifest_field(raw, 'spec', 'upgradeDescription'), 'first line\nsecond line')
+
+    def test_olares_then_all_preview_does_not_lose_third_party(self):
+        r = self.release_runner(); r.apply = False
+        r.heads = {'prod': self.source, 'preview': self.target, 'test': self.target}
+        r.git.submitter = lambda *args: 'Community'
+        r.discover([r.cfg.environment('preview')], 'olares')
+        self.assertEqual(r.state['tasks'], {})
+        r.discover([r.cfg.environment('preview')], 'all')
+        self.assertEqual(set(r.state['tasks']), {'preview/app'})
+        self.assertEqual(r.state['sync_checkpoints']['test']['olares'], self.base)
+
+    def test_legacy_third_party_test_task_is_not_executed_on_refresh(self):
+        r = self.release_runner();r.apply = False
+        r.state['tasks']['test/app'] = {'app': 'app','source':'prod','target':'test','source_sha':self.source,'status':'pending'}
+        r.git.submitter = lambda *args:'Community'
+        processed=[];r.process=lambda t:processed.append(t)
+        r.run(refresh_only=True)
+        self.assertEqual(processed,[])
+        self.assertEqual(r.state['tasks']['test/app']['status'],'pending')
+
+    def test_test_newer_version_is_reported_without_backport(self):
+        r=self.release_runner();r.apply=False
+        r.heads={'prod':self.target,'test':self.source,'preview':self.target}
+        r.state['checkpoint']=self.target
+        r.state['tasks']['test/app']={'app':'app','source':'prod','target':'test','source_sha':self.target,'status':'pending','sync_managed':True}
+        processed=[];r.process=lambda t:processed.append(t)
+        report=r.run()
+        self.assertEqual(processed,[])
+        self.assertEqual(report['apps'][0]['status'],'target_ahead')
+
+    def test_removed_app_submitter_comes_from_last_manifest(self):
+        self.cmd('checkout','source')
+        import shutil
+        shutil.rmtree(self.work/'app');self.write('app/.remove','')
+        removed=self.commit('remove')
+        self.git.run('fetch',str(self.work),'+refs/heads/source:refs/heads/source')
+        self.assertEqual(self.git.submitter(removed,'app'),'Olares')
 
     def test_release_submit_queues_and_deduplicates_message(self):
         from lifecycle import submit
