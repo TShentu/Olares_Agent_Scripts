@@ -419,6 +419,15 @@ class GitTests(unittest.TestCase):
         self.assertEqual(processed,[])
         self.assertEqual(report['apps'][0]['status'],'target_ahead')
 
+    def test_default_sync_does_not_execute_preview_origin_task(self):
+        r=self.release_runner();r.apply=False
+        r.heads={'prod':self.source,'preview':self.source,'test':self.target}
+        r.state['checkpoint']=self.source
+        r.state['tasks']['test/app']={'app':'app','source':'preview','target':'test','source_sha':self.source,'status':'pending','sync_managed':False}
+        processed=[];r.process=lambda t:processed.append(t)
+        r.run()
+        self.assertEqual(processed,[])
+
     def test_removed_app_submitter_comes_from_last_manifest(self):
         self.cmd('checkout','source')
         import shutil

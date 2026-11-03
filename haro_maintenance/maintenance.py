@@ -325,6 +325,8 @@ class Runner:
                     return task.get("app") == explicit_app and task.get("source") == source.name and task.get("target") in {e.name for e in targets}
                 if preview and (task.get("source"), task.get("target")) != ("prod", "preview"):
                     return False
+                if not refresh_only and (task.get("source") != self.cfg.envs[-1].name or task.get("target") not in {e.name for e in self.cfg.envs[:-1]}):
+                    return False
                 automatic = task.get("sync_managed", not bool(task.get("parents")))
                 if refresh_only and not automatic:
                     return True
