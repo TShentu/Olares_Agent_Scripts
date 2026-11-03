@@ -115,3 +115,25 @@ Final integration: the refreshed Feishu session returned the new release/job hel
 and executed per-app jobs queries successfully. Query guidance was tightened to
 use only durable operation records, not cron inventory. Concurrent route installation
 was also verified after replacing shared temporary filenames with unique files.
+
+## 2026-11-03 refresh automation auto-disable fix
+
+- Symptom: `haro-maintenance:refresh` was auto-disabled after ten consecutive failed
+  runs. Every failed run printed `NO_REPLY` and exited 2, so the automation looked
+  broken while it was correctly reporting that nothing had changed.
+- Cause: `scheduled.py` returned the maintenance report exit code (2 = blocked tasks
+  or environment errors) on quiet refresh paths. OpenClaw records every non-zero run
+  as a failure, so an idle poll with already-reported attention state counted as a
+  failure and the scheduler disabled a healthy automation.
+- Fix: the wrapper now exits 0 for any run that produced a report and 1 only for a
+  run without a usable report (crash, timeout, unreadable output). Blocked tasks and
+  environment errors remain visible in the delivered summary as `需要处理`.
+- Live verification: refresh command returned `NO_REPLY` with exit code 0; the manual
+  scheduler run recorded `ok`/`succeeded` with silent delivery suppression; the job was
+  re-enabled and its failure state cleared.
+- Tests: 44 tests pass on Python 3.14 (four new scheduler tests cover the exit-status
+  contract, the quiet blocked-task poll, the delivered daily report and genuine
+  maintenance failures).
+- Unrelated and left untouched: the `agentj` backports to `test` and `preview` stay
+  blocked by the ownership gate (`prod` `agentj/owners` lists only `preangelleo`, the
+  configured identity is `TShentu`). Owner and version checks are never bypassed.

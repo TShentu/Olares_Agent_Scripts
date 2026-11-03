@@ -545,6 +545,67 @@ class SchedulerTests(unittest.TestCase):
             self.assertIn('需工程师检查', output.getvalue())
             self.assertIn('Job j', output.getvalue())
 
+    def test_blocked_tasks_report_once_and_stay_successful_runs(self):
+        """Attention state is reported in the summary, never as a failed run.
+
+        A blocked task keeps the maintenance report at exit code 2. The first
+        refresh delivers that state; later refreshes are quiet. Neither may be
+        recorded as a failed run, otherwise the scheduler disables a healthy
+        automation after repeated quiet polls.
+        """
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); config = root / 'config.yaml'
+            config.write_text(yaml.safe_dump(sample(root))); (root / 'state').mkdir()
+            task = {'app': 'agentj', 'target': 'test', 'status': 'blocked',
+                    'error': 'GitHub identity is not an app owner', 'url': ''}
+            reply = subprocess.CompletedProcess([], 2, json.dumps({'apps': [task], 'errors': []}), '')
+            output = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'refresh']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 0)
+            self.assertIn('需要处理', output.getvalue())
+            self.assertIn('GitHub identity is not an app owner', output.getvalue())
+            quiet = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'refresh']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(quiet):
+                self.assertEqual(scheduled.main(), 0)
+            self.assertEqual(quiet.getvalue().strip(), 'NO_REPLY')
+
+    def test_daily_report_with_blocked_tasks_is_delivered_without_failure(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); config = root / 'config.yaml'
+            config.write_text(yaml.safe_dump(sample(root))); (root / 'state').mkdir()
+            task = {'app': 'agentj', 'target': 'preview', 'status': 'blocked',
+                    'error': 'GitHub identity is not an existing target owner', 'url': ''}
+            reply = subprocess.CompletedProcess([], 2, json.dumps({'apps': [task], 'errors': []}), '')
+            output = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'run']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 0)
+            self.assertIn('需要处理', output.getvalue())
+            self.assertIn('agentj', output.getvalue())
+
+    def test_maintenance_failure_keeps_failing_the_run(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); config = root / 'config.yaml'
+            config.write_text(yaml.safe_dump(sample(root))); (root / 'state').mkdir()
+            reply = subprocess.CompletedProcess([], 1, json.dumps({"error": "GitHub transport error; write outcome may be unknown"}), '')
+            output = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'run']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 1)
+            self.assertIn('GitHub transport error', output.getvalue())
+
+    def test_unreadable_report_fails_the_run(self):
+        import scheduled
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); config = root / 'config.yaml'
+            config.write_text(yaml.safe_dump(sample(root))); (root / 'state').mkdir()
+            reply = subprocess.CompletedProcess([], 0, 'not json', '')
+            output = io.StringIO()
+            with patch.object(sys, 'argv', ['scheduled', '--config', str(config), 'run']), patch.object(scheduled.subprocess, 'run', return_value=reply), redirect_stdout(output):
+                self.assertEqual(scheduled.main(), 1)
+            self.assertIn('did not return JSON', output.getvalue())
+
 
 
 if __name__ == "__main__":

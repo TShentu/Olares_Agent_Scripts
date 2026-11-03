@@ -103,6 +103,13 @@ schedule, remove only overlapping application repos from an existing fork-sync j
 preserve static/Olares and all unrelated jobs. Back up legacy config and cron JSON
 first. No legacy source code is rewritten.
 
+Wrapper exit status: `0` when the maintenance run produced a report, `1` when it
+produced no usable report (crash, timeout, unreadable output). Blocked tasks and
+environment errors are attention state and travel in the summary text
+(`需要处理`), never in the exit status. A scheduler records every non-zero run as a
+failure, so mapping attention state onto it made idle refresh polls count as
+failures and disabled a healthy automation after ten quiet polls.
+
 Install `skills/haro-reconcile` into the workspace skills directory and add a private
 `runtime.json` with `script` and `config` absolute paths. This skill coexists with
 existing command routing. Use pinned source commits when deploying; do not reset a

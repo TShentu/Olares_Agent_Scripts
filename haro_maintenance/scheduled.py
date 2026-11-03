@@ -11,6 +11,22 @@ from config import Config
 from maintenance import atomic_json
 
 
+def run_status(returncode, parsed):
+    """Exit status of the wrapper for a finished maintenance run.
+
+    A produced report is a successful run even when it reports blocked tasks
+    or environment errors: that attention state belongs to the summary text.
+    Only a run without a usable report is a failed run. Mapping business
+    state onto the exit status would make a scheduler count every idle poll
+    as a failure and disable a healthy automation.
+    """
+    if not parsed:
+        return 1
+    if returncode in (0, 2):
+        return 0
+    return 1
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
@@ -25,8 +41,10 @@ def main():
         return 1
     try:
         result = json.loads(r.stdout)
+        parsed = True
     except ValueError:
         result = {"error": "maintenance process did not return JSON"}
+        parsed = False
     if a.mode == "refresh" and result.get("error") == "another local maintenance run is active":
         print("NO_REPLY")
         return 0
@@ -38,11 +56,13 @@ def main():
     memo = cfg.root / "notification.json"
     previous = json.loads(memo.read_text()) if memo.exists() else {}
     if a.mode == "refresh" and digest == previous.get("digest"):
+        # Nothing changed since the last delivered summary. The refresh itself
+        # succeeded, so it stays a successful run instead of a failure.
         print("NO_REPLY")
-        return r.returncode
+        return run_status(r.returncode, parsed)
     if a.mode == "refresh" and not tasks and not jobs and not result.get("error") and not result.get("errors"):
         print("NO_REPLY")
-        return r.returncode
+        return run_status(r.returncode, parsed)
     lines = ["Haro 仓库维护 " + ("完成" if r.returncode == 0 else "需要处理")]
     if result.get("baseline"):
         lines.append("已建立基线；存量差异仅报告，未自动覆盖。")
@@ -66,7 +86,7 @@ def main():
     # recursively with message send can deadlock while its command queue is held.
     print("\n".join(lines))
     atomic_json(memo, {"digest": digest, "meaning": "last generated summary; delivery is owned by OpenClaw"})
-    return r.returncode
+    return run_status(r.returncode, parsed)
 
 
 if __name__ == "__main__":
