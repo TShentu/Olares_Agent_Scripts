@@ -1,7 +1,7 @@
 # Haro maintenance and lifecycle deployment
 
 Deployment date: 2026-11-02. Target: `hzfysttq.olares.com`, OpenClaw 2026.10.1.
-Source release: `3d208bbd9bee947e1cb3e8126156a97840af2d95` on
+Source release: `951c0e2cd161f7b44103a0f156a01ff078504cbc` on
 `feat/haro-maintenance`. Code review: https://github.com/TShentu/Olares_Agent_Scripts/pull/2.
 
 ## Installed scope
@@ -52,7 +52,7 @@ that an existing running file was replaced. Never overwrite private config or ba
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-lifecycle-3d208bb.secret.yaml` under the
+Private single-file export: `backups/haro-sync-951c0e2.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
@@ -137,3 +137,19 @@ was also verified after replacing shared temporary filenames with unique files.
 - Unrelated and left untouched: the `agentj` backports to `test` and `preview` stay
   blocked by the ownership gate (`prod` `agentj/owners` lists only `preangelleo`, the
   configured identity is `TShentu`). Owner and version checks are never bypassed.
+
+
+## 2026-11-03 sync scope update
+
+- `!app sync` is equivalent to `!app sync --all`; scheduled daily behavior is unchanged.
+- `!app sync --preview` only discovers/processes prod-to-preview incremental backports,
+  without syncing any fork main, executing test tasks, or advancing release jobs.
+- Both modes are preflight by default; `--apply` enables writes. Flags are mutually
+  exclusive. Missing preview fails before state acquisition; there is no fallback to all.
+- Target-specific cursors are seeded from the existing shared checkpoint before
+  selective advancement. Later all-mode discovery still sees test's unseen changes.
+- Preserved the concurrent upstream fix 040346e for quiet refresh exit statuses.
+- Local Python 3.9 and cloud Python 3.14: 48 tests passed, including selective scope,
+  cursor migration, missing-preview errors and CLI mutual exclusion.
+- Deployment backed up config/state in `backups/before-sync-scope-951c0e2/` and wrote
+  the current private one-file export `backups/haro-sync-951c0e2.secret.yaml`.
