@@ -206,6 +206,7 @@ class GitTests(unittest.TestCase):
         self.assertTrue(runner.report["baseline"])
         self.assertEqual(runner.state["tasks"], {})
         runner.state["checkpoint"] = self.base
+        runner.state.pop("checkpoints", None)
         runner.discover()
         self.assertEqual(list(runner.state["tasks"]), ["test/app"])
 
@@ -336,6 +337,48 @@ class GitTests(unittest.TestCase):
         request = r.api.request
         r.api.request = lambda method, path, data=None: {'sha': self.source} if method == 'GET' else request(method, path, data)
         return r
+
+    def test_preview_cursor_does_not_consume_test_updates(self):
+        r = self.release_runner()
+        r.apply = False
+        r.heads = {'prod': self.source, 'preview': self.target, 'test': self.target}
+        r.discover([r.cfg.environment('preview')])
+        self.assertEqual(r.state['checkpoints'], {'test': self.base, 'preview': self.source})
+        self.assertEqual(set(r.state['tasks']), {'preview/app'})
+        self.assertEqual(r.state['checkpoint'], self.base)
+        r.discover()
+        self.assertEqual(set(r.state['tasks']), {'preview/app', 'test/app'})
+        self.assertEqual(r.state['checkpoints']['test'], self.source)
+
+    def test_preview_run_does_not_process_other_targets_or_release_jobs(self):
+        r = self.release_runner()
+        r.apply = False
+        r.heads = {'prod': self.source, 'preview': self.target}
+        untouched = {'app': 'else', 'source': 'prod', 'target': 'test', 'status': 'pending'}
+        r.state['tasks']['test/else'] = dict(untouched)
+        r.state['jobs']['queued'] = {'id': 'queued', 'status': 'queued', 'app': 'app', 'target': 'prod', 'source': 'test'}
+        fetched = []
+        r.fetch = lambda **kw: fetched.append(kw)
+        processed = []
+        r.process = lambda task: processed.append((task['source'], task['target']))
+        r.run(scope='preview')
+        self.assertEqual(fetched, [{'sync_forks': False, 'names': {'prod', 'preview'}}])
+        self.assertEqual(processed, [('prod', 'preview')])
+        self.assertEqual(r.state['tasks']['test/else'], untouched)
+        self.assertEqual(r.state['jobs']['queued']['status'], 'queued')
+
+    def test_preview_missing_fails_before_open_or_fetch(self):
+        r, task = self.runner_task()
+        with self.assertRaisesRegex(Error, 'environment not configured: preview'):
+            r.run(scope='preview')
+
+    def test_sync_scope_parser_default_explicit_and_exclusive(self):
+        from maintenance import parser
+        self.assertEqual(parser().parse_args(['run']).scope, 'all')
+        self.assertEqual(parser().parse_args(['run', '--all']).scope, 'all')
+        self.assertEqual(parser().parse_args(['run', '--preview', '--apply']).scope, 'preview')
+        with patch('sys.stderr', new=io.StringIO()), self.assertRaises(SystemExit):
+            parser().parse_args(['run', '--preview', '--all'])
 
     def test_release_submit_queues_and_deduplicates_message(self):
         from lifecycle import submit

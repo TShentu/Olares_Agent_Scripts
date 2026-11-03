@@ -12,8 +12,10 @@ description: Handle !app help and implemented Haro repository maintenance comman
 |---|---|---|
 | `!app config` | `config` | 脱敏环境配置及等级 |
 | `!app status` | `status` | 最近一次维护报告，注明报告时间，不冒充实时应用状态 |
-| `!app sync` | `run` | 三环境同步及新增生产更新 backport 预检查 |
-| `!app sync --apply` | `run --apply` | 执行 fork 同步与新增更新的 Draft PR 处理 |
+| `!app sync` / `!app sync --all` | `run --all` | 所有环境 fork 同步及生产新增更新向低等级回流预检查 |
+| `!app sync --preview` | `run --preview` | 仅 prod → preview 新增更新回流预检查 |
+| `!app sync --all --apply` | `run --all --apply` | 所有环境同步；省略 --all 等价 |
+| `!app sync --preview --apply` | `run --preview --apply` | 仅处理 prod → preview 回流 Draft PR |
 | `!app refresh` | `refresh` | 已跟踪 PR 的预检查 |
 | `!app refresh --apply` | `refresh --apply` | 刷新已跟踪 PR，不发现新更新或同步 fork |
 | `!app backport <app> --from prod --to preview,test` | `backport <app> --from prod --to preview,test` | 指定应用完整目录回流预检查 |
@@ -29,7 +31,8 @@ description: Handle !app help and implemented Haro repository maintenance comman
 
 `--apply` 明确授权该次写入，普通命令默认预检查。命令输出需确认退出状态，不能把
 计划操作说成已执行。预检查无 GitHub 写入，但会更新本地缓存与报告。
-同步是对配置中的所有环境执行；不接受尚未实现的 `sync --env`。
+sync 默认 --all，--all 与 --preview 互斥；不接受 `sync --env`。
+--preview 仅从 prod 回写 preview，不同步任何 fork 的 main、不操作 test，也不推进其他发布 jobs。未配置 preview 时明确报错，不回退到 --all。两种范围各自保留目标检查点；仍是增量扫描，不是历史差异全量回灌。
 
 帮助必须明确：批量发布、`show/list/count/diff` 仓库历史分发查询、`update/suspend/resume/remove` 新入口、`conflicts` 专用查询尚未上线。
 路由查看不发布应用。原 `!push_app`、`!mod_app` 等指令保留，不自动重定向。
@@ -68,3 +71,5 @@ description: Handle !app help and implemented Haro repository maintenance comman
 首版仅单应用，不把批量参数拆成未经确认的多次发布。
 
 `job/jobs` 的唯一数据源是 lifecycle.py 查询出的 GitHub 恢复状态。查询成功就返回结果；空列表只说明没有匹配操作记录，不能推出定时任务不存在。不要为 job 查询调用 automations/cron 清单或提议新增例行检查，现有十分钟 refresh 已负责队列推进。预检查不保存 job；仅 --apply 返回的持久化 job ID 可供后续查询。
+
+每次处理 `!app sync` 或帮助时读取当前入口说明，不沿用旧会话中“sync 不支持参数”的结论。

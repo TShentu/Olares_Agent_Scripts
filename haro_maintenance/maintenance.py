@@ -96,8 +96,10 @@ class Runner:
             self.remote.save(self.state)
             atomic_json(self.cfg.root / "state.json", self.state)
 
-    def fetch(self, sync_forks=True):
+    def fetch(self, sync_forks=True, names=None):
         for e in self.cfg.envs:
+            if names is not None and e.name not in names:
+                continue
             self.api.check_environment(e)
             upstream = self.git.fetch(e.upstream, e.branch, "refs/haro/" + e.name + "/upstream")
             fork = self.git.fetch(e.github, e.branch, "refs/haro/" + e.name + "/fork")
@@ -110,28 +112,34 @@ class Runner:
             except Error as ex:
                 self.report["errors"].append({"environment": e.name, "error": str(ex)})
 
-    def discover(self):
+    def discover(self, targets=None):
         source = self.cfg.envs[-1]
         head = self.heads[source.name]
-        previous = self.state["checkpoint"]
-        if not previous:
-            self.report["baseline"] = True
-            self.report["baseline_commit"] = head
-            # Initial differences are informational, never an implicit overwrite.
-            self.report["initial_differences"] = {e.name: [a for a in self.git.apps(head)
-                if self.git.tree(head, a) != self.git.tree(self.heads[e.name], a)] for e in self.cfg.envs[:-1]}
-        else:
-            if not self.git.ancestor(previous, head):
-                raise Error("source history rewritten; explicit baseline recovery required")
-            excluded = (self.cfg.maintenance.get("backport") or {}).get("exclude_apps", [])
-            for app in self.git.changed_apps(previous, head):
-                if app in excluded:
-                    continue
-                event = self.git.text("log", "-1", "--format=%H", head, "--", app)
-                for target in self.cfg.envs[:-1]:
-                    from lifecycle import enqueue_backport
-                    enqueue_backport(self, app, source.name, target.name, head)
-        self.state["checkpoint"] = head
+        # Seed every target before advancing any one target. The legacy cursor is
+        # shared, so copying it lazily after a selective run could lose changes.
+        cursors = self.state.setdefault("checkpoints", {})
+        for env in self.cfg.envs[:-1]:
+            cursors.setdefault(env.name, self.state.get("checkpoint"))
+        selected = self.cfg.envs[:-1] if targets is None else targets
+        for target in selected:
+            previous = cursors[target.name]
+            if not previous:
+                self.report["baseline"] = True
+                self.report["baseline_commit"] = head
+                self.report.setdefault("initial_differences", {})[target.name] = [
+                    a for a in self.git.apps(head)
+                    if self.git.tree(head, a) != self.git.tree(self.heads[target.name], a)]
+            else:
+                if not self.git.ancestor(previous, head):
+                    raise Error("source history rewritten; explicit baseline recovery required")
+                excluded = (self.cfg.maintenance.get("backport") or {}).get("exclude_apps", [])
+                for app in self.git.changed_apps(previous, head):
+                    if app not in excluded:
+                        from lifecycle import enqueue_backport
+                        enqueue_backport(self, app, source.name, target.name, head)
+            cursors[target.name] = head
+        if targets is None:
+            self.state["checkpoint"] = head
         self.save()
 
     def body(self, task, target_sha, kind, version, summary):
@@ -275,12 +283,23 @@ class Runner:
         if not fresh:
             raise Error("target advanced after PR update; snapshot status marked failed")
 
-    def run(self, explicit_app=None, source_name=None, target_names=None, refresh_only=False):
+    def run(self, explicit_app=None, source_name=None, target_names=None, refresh_only=False, scope="all"):
+        if scope not in {"all", "preview"}:
+            raise Error("unsupported sync scope")
+        preview = None
+        if scope == "preview":
+            if explicit_app or refresh_only:
+                raise Error("--preview is only supported for run")
+            preview = self.cfg.environment("preview")
+            prod = self.cfg.environment("prod")
+            if self.cfg.envs[-1].name != "prod" or preview.level >= prod.level:
+                raise Error("--preview requires prod as the highest level and preview below it")
         self.open()
         try:
-            self.fetch(sync_forks=not refresh_only and not explicit_app)
+            self.fetch(sync_forks=not refresh_only and not explicit_app and scope == "all",
+                       names={"prod", "preview"} if preview else None)
             from lifecycle import tick, audit, blocks_maintenance, enqueue_backport
-            if not explicit_app:
+            if not explicit_app and scope == "all":
                 tick(self)
             if explicit_app:
                 source = self.cfg.environment(source_name or self.cfg.envs[-1].name)
@@ -290,13 +309,17 @@ class Runner:
                         raise Error("backport target must be below source")
                     enqueue_backport(self, app_name(explicit_app), source.name, target.name, self.heads[source.name])
             elif not refresh_only:
-                self.discover()
+                self.discover([preview] if preview else None)
             # Completed old PRs can now release their deferred newer event.
             for old in list(self.state["tasks"].values()):
+                if preview and (old.get("source"), old.get("target")) != ("prod", "preview"):
+                    continue
                 if old.get("status") in {"merged", "rejected", "satisfied"} and old.get("next_event"):
                     event = old.pop("next_event")
                     enqueue_backport(self, event['app'], event['source'], event['target'], event['source_sha'], event.get('parent'))
             for key, task in list(self.state["tasks"].items()):
+                if preview and (task.get("source"), task.get("target")) != ("prod", "preview"):
+                    continue
                 if task.get("status") in {"merged", "rejected", "satisfied"}:
                     continue
                 if task.get("status") == "retry_exhausted":
@@ -318,8 +341,9 @@ class Runner:
                             task["status"] = "retry_exhausted"
                 self.save()
                 self.report["apps"].append(copy.deepcopy(task))
-            if not explicit_app:
+            if not explicit_app and scope == "all":
                 audit(self)
+            self.report["scope"] = scope
             self.report["operation"] = "backport" if explicit_app else ("refresh" if refresh_only else "run")
             return self.report
         finally:
@@ -337,6 +361,10 @@ def parser():
     for name in ("run", "refresh", "backport"):
         s = sub.add_parser(name)
         s.add_argument("--apply", action="store_true", help="allow fork pushes and Draft PR writes")
+        if name == "run":
+            group = s.add_mutually_exclusive_group()
+            group.add_argument("--all", dest="scope", action="store_const", const="all", default="all")
+            group.add_argument("--preview", dest="scope", action="store_const", const="preview")
         if name == "backport":
             s.add_argument("app")
             s.add_argument("--from", dest="source")
@@ -368,7 +396,8 @@ def main():
                     raise Error("another local maintenance run is active")
                 runner = Runner(cfg, GitHub(cfg.token(args.token_file, args.token_env)), args.apply)
                 result = runner.run(getattr(args, "app", None), getattr(args, "source", None),
-                    args.to.split(",") if getattr(args, "to", None) else None, args.command == "refresh")
+                    args.to.split(",") if getattr(args, "to", None) else None, args.command == "refresh",
+                    scope=getattr(args, "scope", "all"))
                 atomic_json(cfg.root / "latest-report.json", result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if not result.get("errors") and not any(t.get("status") in {"blocked", "retry_exhausted"} for t in result.get("apps", [])) else 2

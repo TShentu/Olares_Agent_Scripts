@@ -174,3 +174,16 @@ needs engineer. No automated upstream merge or Olares Market service call occurs
 A ready PR whose base is still current remains awaiting review. A stale ready PR is
 flagged for review rather than rewritten. Failed release execution retries up to three
 times, then remains visible as needs_attention; known PRs still get merge/close checks.
+
+## Sync scope
+
+`!app sync` defaults to `--all`: synchronize configured forks, discover production
+updates for all lower environments, and maintain existing jobs. `!app sync --preview`
+only discovers/processes prod-to-preview backports; no fork main, test task or
+release job is modified. Both modes default to dry-run; add `--apply` to write PRs.
+The flags are mutually exclusive, and missing preview is an error.
+
+Target-specific checkpoints are initialized from the legacy shared checkpoint before
+any selective advance. A preview-only run cannot consume test's undiscovered updates.
+This remains incremental discovery plus existing target tasks, not a full historical
+backfill. The scheduled daily run keeps the default all-environment behavior.
