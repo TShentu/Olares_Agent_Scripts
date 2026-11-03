@@ -1,7 +1,7 @@
 # Haro maintenance and lifecycle deployment
 
 Deployment date: 2026-11-02. Target: `hzfysttq.olares.com`, OpenClaw 2026.10.1.
-Source release: `951c0e2cd161f7b44103a0f156a01ff078504cbc` on
+Source release: `32498054d9e1d42ebda9f110721ee6e6ac338d1a` on
 `feat/haro-maintenance`. Code review: https://github.com/TShentu/Olares_Agent_Scripts/pull/2.
 
 ## Installed scope
@@ -52,7 +52,7 @@ that an existing running file was replaced. Never overwrite private config or ba
 
 ## Recovery and remaining rollout boundaries
 
-Private single-file export: `backups/haro-sync-951c0e2.secret.yaml` under the
+Private single-file export: `backups/haro-sync-3249805.secret.yaml` under the
 module directory. It contains a credential and embedded legacy configs/blacklist;
 do not publish or attach it to an issue. It was checked for mode 0600 and parseability.
 Legacy handoff backup: `backups/handoff-1793623251/`.
@@ -153,3 +153,24 @@ was also verified after replacing shared temporary filenames with unique files.
   cursor migration, missing-preview errors and CLI mutual exclusion.
 - Deployment backed up config/state in `backups/before-sync-scope-951c0e2/` and wrote
   the current private one-file export `backups/haro-sync-951c0e2.secret.yaml`.
+
+
+## 2026-11-03 Submitter policy (supersedes the preceding sync scope defaults)
+
+- Supported: sync (Olares to preview/test), sync --preview (Olares to preview),
+  sync --preview --all (all submitters to preview). Bare --all is rejected.
+- Static spec.submitter is read independently of Helm templates elsewhere; developer,
+  owners and Git commit authors are not used to infer the submitter. Removed apps use
+  their last historical manifest. Missing/dynamic submitters are excluded by default.
+- Manual sync invokes single-app backport processing only. Daily scheduled run keeps
+  fork/job maintenance through an internal flag and defaults discovery to Olares.
+- Legacy automatic tasks are also filtered during refresh; explicit individual
+  backports and release-linked children retain their requested scope.
+- sync_checkpoints separately tracks each target and Olares/all selectors. Test ahead
+  of production is reported without attempting a downgrade/backport.
+- Local and cloud suites: 54 tests passed. Live read-only smoke tests confirmed all
+  three selectors and bare --all rejection. Five changed Olares apps were already
+  identical in test; preview backports remain blocked by existing validation rules.
+  Third-party agentj only appeared in the all-app preview mode. No PR was created.
+- Main command router, AGENTS context and the app skill now state the current defaults.
+  Backup: backups/haro-sync-3249805.secret.yaml, private mode 0600.
