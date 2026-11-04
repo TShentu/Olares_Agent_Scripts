@@ -200,3 +200,5 @@ before either selector advances. Choosing Olares first does not consume future a
 preview updates. This remains incremental discovery, not historical full backfill.
 
 Sync/backport PRs use the `enhancement` label as batch maintenance. Haro does not gate them on Gitbot title format, app owners or file count. Each PR still carries one app snapshot with verified diff and baseline; promote/publish keep their existing validation. Label write failures are reported and retried, not silently ignored.
+
+Notification routing: `notifications.target` receives fixed daily summaries; optional `notifications.status_target` receives refresh updates and native failure alerts. Without it, legacy delivery is preserved. Interactive replies remain in the requesting conversation/thread.

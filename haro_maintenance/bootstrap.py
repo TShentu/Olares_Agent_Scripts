@@ -42,7 +42,10 @@ def install(cfg, apply=False):
         args = ["--name", key, "--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai"),
                 "--command-argv", json.dumps(command), "--timeout-seconds", "1500",
                 "--announce", "--channel", notifications.get("channel", "feishu"),
-                "--to", notifications["target"]]
+                "--to", notifications.get("status_target", notifications["target"]) if mode == "refresh" else notifications["target"]]
+        if notifications.get("status_target"):
+            args += ["--failure-alert-channel", notifications.get("channel", "feishu"),
+                     "--failure-alert-to", notifications["status_target"], "--failure-alert-mode", "announce"]
         if apply:
             if matched:
                 r = cli("cron", "edit", matched[0]["id"], *args, "--enable")

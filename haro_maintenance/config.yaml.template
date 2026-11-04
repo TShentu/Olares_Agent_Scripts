@@ -39,3 +39,5 @@ recovery:
 notifications:
   channel: feishu
   target: ""
+  # Status/refresh and failure alerts; target above is the scheduled summary destination.
+  status_target: ""
