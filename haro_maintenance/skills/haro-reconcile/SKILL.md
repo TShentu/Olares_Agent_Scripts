@@ -49,3 +49,7 @@ delivery is handled by the deterministic wrapper using the configured destinatio
 Single-app promote/publish and job/jobs are available in sibling lifecycle.py. The !app command skill defines trusted requester metadata and active-job acknowledgement. Scheduled run/refresh also processes these jobs, detects merges and audits failed follow-ups. No Market service API is used.
 
 Interactive !app sync uses the app skill fast path and --summary. Do not add diagnostics, polling loops, memory writes, or automatic batch retries. A completion notification supplies the result.
+
+## Error boundary
+
+Follow AGENTS.md execution/error policy. On failure report the returned error and stop. Do not trigger triage, source inspection, alternate commands, retries, memory writes or recovery without explicit user authorization. Progress feedback may use a minimal status query for the current task.

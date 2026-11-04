@@ -371,3 +371,7 @@ Sync/backport PRs are batch maintenance and must carry `enhancement`. Skip local
 ### Sync execution cost (2026-11-04)
 
 Interactive sync uses --summary, one background exec and native completion notification. No polling loops, automatic diagnostics, memory writes or whole-batch retry. Full reports remain on disk; compact chat reports cap app rows at 30. App routing reads only runtime.json, not a second reconcile skill. The installer updates both skill copies and repairs the add-cdn table row. Uncertain checkpoint writes abort the run and preserve the lease for reconciliation; they must not continue mutating other apps. Main-agent context cost remains; a deterministic non-LLM command dispatcher is a separate future phase.
+
+### Explicit authorization before diagnosis (2026-11-04)
+
+Supersedes Agent-driven recovery guidance: ordinary errors are reported and execution stops. Diagnostics, alternate commands and retries require explicit user authorization. Progress feedback remains allowed. Normal script workflows and configured schedules keep their scope. `clean_workspace_policy.py` archives conflicting workspace rules, recent diagnostic narratives and automatic triage triggers; backups are private and outside the daily memory path. Routine commands load only their route and runtime locator.

@@ -86,3 +86,7 @@ sync 使用 `python3 <script> --config <config> --summary run <允许的参数>`
 工具返回 running 后告知已启动并结束当前回合，等待原生完成通知；禁止 process poll/log 循环。完成后仅呈现 counts、应用状态、PR 链接与错误，不再读完整报告。
 普通 sync 不是诊断请求。无论成功或 blocked，均不得自行读源码/备份/其他 Skill、改配置/Skill、写 memory、查询 cron 或整批重跑。错误简短返回，恢复由独立明确请求或现有维护任务处理。
 只按当前消息执行；help 不续跑历史任务。用户明确请求排障时才进入诊断流程。
+
+## Error boundary
+
+Follow AGENTS.md execution/error policy. On failure report the returned error and stop. Do not trigger triage, source inspection, alternate commands, retries, memory writes or recovery without explicit user authorization. Progress feedback may use a minimal status query for the current task.
