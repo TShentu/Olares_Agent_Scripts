@@ -11,6 +11,10 @@ import urllib.request
 from config import Error
 
 
+class CheckpointError(Error):
+    """A failed state write stops all further mutations in this run."""
+
+
 class ApiError(Error):
     def __init__(self, status, endpoint):
         self.status = status
@@ -78,6 +82,7 @@ class RemoteState:
     def __init__(self, api, repo, branch="haro-maintenance-state", path="haro-state.json"):
         self.api, self.repo, self.branch, self.path = api, repo, branch, path
         self.sha = None
+        self.uncertain = False
 
     def load(self):
         endpoint = f"repos/{self.repo}/contents/{self.path}?ref=" + urllib.parse.quote(self.branch, safe="")
@@ -114,9 +119,14 @@ class RemoteState:
         try:
             result = self.api.request("PUT", f"repos/{self.repo}/contents/{self.path}", payload)
             self.sha = result["content"]["sha"]
-        except Error:
+        except Error as cause:
+            self.uncertain = True
             old_sha = self.sha
-            actual = self.load()
+            try:
+                actual = self.load()
+            except Error:
+                raise CheckpointError("checkpoint reconciliation failed; stop this run") from None
             if actual != value:
                 self.sha = old_sha
-                raise Error("remote checkpoint changed or write is uncertain; stop this run") from None
+                raise CheckpointError("remote checkpoint changed or write is uncertain; stop this run (" + str(cause) + ")") from None
+            self.uncertain = False

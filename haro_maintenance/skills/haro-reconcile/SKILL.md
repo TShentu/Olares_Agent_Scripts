@@ -21,7 +21,10 @@ Commands (global flags precede the subcommand):
 
 The configured daily schedule authorizes its fixed work. An interactive dry-run
 does not itself authorize an apply. Honor the user's requested scope; never bypass
-owners/version checks or substitute a different GitHub identity after an error.
+version checks or substitute a different GitHub identity after an error.
+Sync/backport PRs carry `enhancement` and do not require the GitHub identity
+to appear in app owners. Do not impose Gitbot title or file-count validation
+on these maintenance PRs. Promote/publish retain their existing owner checks.
 
 Source-snapshot policy replaces the complete named app directory, including
 target-only files. Other apps and repository files remain unchanged. Report any
@@ -42,3 +45,7 @@ Return app, source/target, task status, PR URL and concise error. Distinguish Dr
 PR created, merged, and expected Market publication; merging is not proof of live
 Market availability. Ordinary results go to the requesting conversation; scheduled
 delivery is handled by the deterministic wrapper using the configured destination.
+
+Single-app promote/publish and job/jobs are available in sibling lifecycle.py. The !app command skill defines trusted requester metadata and active-job acknowledgement. Scheduled run/refresh also processes these jobs, detects merges and audits failed follow-ups. No Market service API is used.
+
+Interactive !app sync uses the app skill fast path and --summary. Do not add diagnostics, polling loops, memory writes, or automatic batch retries. A completion notification supplies the result.

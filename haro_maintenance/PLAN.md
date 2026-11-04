@@ -1,6 +1,6 @@
 # Haro 应用生命周期管理重构计划
 
-更新日期：2026-11-02。本文合并本次讨论的全部已确认决策，作为后续实施依据，替代此前分散的方案描述。第一阶段独立维护模块已提交并部署到云端，具体版本、任务、验证和剩余边界见 [DEPLOYMENT.md](DEPLOYMENT.md)。后续生命周期指令、查询引擎及完整旧配置迁移仍按阶段推进。
+更新日期：2026-11-02。本文合并本次讨论的全部已确认决策，作为后续实施依据，替代此前分散的方案描述。第一阶段独立维护模块已提交并部署到云端，具体版本、任务、验证和剩余边界见 [DEPLOYMENT.md](DEPLOYMENT.md)。单应用 promote/publish 与 job 已按后文增量落地；批量、仓库历史分发查询及完整旧配置迁移仍按阶段推进。
 
 ## 1. 目标与实施边界
 
@@ -337,3 +337,37 @@ GitHub PR 使用三点 diff，比较 merge base 到 head。创建时 C 的父提
 - [GitHub 分支比较](https://docs.github.com/en/pull-requests/reference/branches)：PR 使用三点比较，应处理目标推进导致的基线变化。
 
 临时 Git 实验已验证：`merge --squash -X theirs` 保留目标独有文件；源快照替换可得到相同应用 tree 并保留其他目录；目标推进后两种 diff 可以不同，从新目标重新生成后恢复一致。上述实验不代表已在真实仓库执行或部署维护功能。
+
+
+## 单应用发布增量（2026-11-02）
+
+本次落地单应用 promote/publish、自动标题、异步 job 和 job/jobs 查询；批量后续实现。
+每个应用跨环境操作独立记录，发起前展示同应用 active jobs，确认后才入队；Gitbot
+继续负责仓库端提交约束。发布 PR 合并后由十分钟心跳创建中间环境 backport，
+回流失败独立展示，不回滚或混淆已完成发布。每日同时复查失败任务涉及的仓库
+内容，不以扫描检查点推进作为一致性成功。所有操作针对 GitHub；历史分发查询
+也是仓库历史解析，不调用 Olares Market 服务。
+
+
+## 2026-11-03 同步范围增量
+
+`!app sync` 默认 `--all`，保持所有配置环境 fork 同步和生产更新回流。
+`--preview` 仅 prod → preview 增量回流及该方向已有任务，不操作 test、fork main 或其他发布 jobs。
+两参数互斥；未配置 preview 明确报错。检查点按回流目标保存，旧共享检查点先复制给各目标再分别推进，避免漏掉 test 的更新。
+两种模式默认预检查，`--apply` 才写入；不隐式进行历史差异全量回灌。
+
+
+## 2026-11-03 Submitter 范围修订（替代此前 sync 参数语义）
+
+仅保留 `sync`（Olares → preview/test）、`sync --preview`（Olares → preview）和 `sync --preview --all`（全部 Submitter → preview）。单独 --all 拒绝。
+读取 spec.submitter，缺失不推断；回流复用单应用引擎。test 开发版本领先则报告 target_ahead，不覆盖。
+手动 sync 不同步 fork main 或推进发布 jobs；每日维护保留 fork sync，应用自动扫描默认仅 Olares。
+旧自动任务在 refresh 也过滤；显式单应用 backport 与发布关联任务保留授权范围。按目标×应用筛选独立记录增量检查点。
+
+### Sync enhancement policy (2026-11-03)
+
+Sync/backport PRs are batch maintenance and must carry `enhancement`. Skip local Gitbot title-format, owner-identity and file-count gates for these tasks. Keep per-app snapshot generation, version safeguards, source/target and diff verification. Promote/publish guards are unchanged. This supersedes earlier blanket owner-check requirements for backports. Existing managed open backport PRs receive the label during apply refresh; dry-run does not write labels.
+
+### Sync execution cost (2026-11-04)
+
+Interactive sync uses --summary, one background exec and native completion notification. No polling loops, automatic diagnostics, memory writes or whole-batch retry. Full reports remain on disk; compact chat reports cap app rows at 30. App routing reads only runtime.json, not a second reconcile skill. The installer updates both skill copies and repairs the add-cdn table row. Uncertain checkpoint writes abort the run and preserve the lease for reconciliation; they must not continue mutating other apps. Main-agent context cost remains; a deterministic non-LLM command dispatcher is a separate future phase.
