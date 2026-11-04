@@ -77,3 +77,5 @@ sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的�
 `job/jobs` 的唯一数据源是 lifecycle.py 查询出的 GitHub 恢复状态。查询成功就返回结果；空列表只说明没有匹配操作记录，不能推出定时任务不存在。不要为 job 查询调用 automations/cron 清单或提议新增例行检查，现有十分钟 refresh 已负责队列推进。预检查不保存 job；仅 --apply 返回的持久化 job ID 可供后续查询。
 
 每次处理 `!app sync` 或帮助时读取当前入口说明，不沿用旧会话中“sync 不支持参数”的结论。
+
+Sync/backport 作为批量维护操作，PR 统一添加 `enhancement` 标签，不校验 Gitbot 标题格式、owners 身份或修改文件数量。仍按单应用快照生成 PR，保留源快照、目标基线和 diff 一致性检查。promote/publish 的校验不变。

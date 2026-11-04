@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import io
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 import yaml
 
@@ -170,6 +170,12 @@ class GitTests(unittest.TestCase):
         with self.assertRaises(Error):
             validate_app(self.git, self.source, self.target, "app", "stranger")
 
+    def test_backport_skips_owners_but_keeps_version_guard(self):
+        self.assertEqual(validate_app(self.git, self.source, self.target, "app", "stranger",
+                                      check_owners=False), ("UPDATE", "2.0.0"))
+        with self.assertRaises(Error):
+            validate_app(self.git, self.target, self.source, "app", "stranger", check_owners=False)
+
     def test_detect_only_changed_apps(self):
         self.assertEqual(self.git.changed_apps(self.base, self.source), ["app"])
 
@@ -237,6 +243,9 @@ class GitTests(unittest.TestCase):
             def status(self, *args):
                 self.statuses.append(args)
             def request(self, method, path, data):
+                if method == "POST" and path.endswith("/labels"):
+                    self.pr["labels"] = [{"name": name} for name in data["labels"]]
+                    return self.pr["labels"]
                 if method == "POST":
                     self.creates += 1
                     self.pr = {**data, "number": 1, "state": "open", "html_url": "https://github.com/u/test/pull/1",
@@ -251,6 +260,21 @@ class GitTests(unittest.TestCase):
         task = {"app": "app", "source": "prod", "source_sha": self.source,
                 "event": self.source, "target": "test", "status": "pending"}
         return r, task
+
+    def test_backport_process_accepts_nonowner_and_labels_pr(self):
+        r, task = self.runner_task()
+        r.login = "not-an-owner"
+        r.process(task)
+        self.assertEqual(task["status"], "awaiting_review")
+        self.assertIn({"name": "enhancement"}, r.api.pr["labels"])
+        self.git.verify(self.source, self.target, task["head"], "app")
+        for operation in ("promote", "publish"):
+            r, task = self.runner_task()
+            r.login = "not-an-owner"
+            task["operation"] = operation
+            with self.assertRaisesRegex(Error, "owner"):
+                r.process(task)
+            self.assertEqual(r.api.creates, 0)
 
     def test_pr_retry_does_not_duplicate_and_human_edit_blocks(self):
         r, task = self.runner_task()
@@ -709,3 +733,34 @@ class SchedulerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SyncLabelTests(unittest.TestCase):
+    def test_labels_only_backports_and_only_apply(self):
+        r = Runner.__new__(Runner)
+        r.api = Mock()
+        target = Mock(repo="org/apps")
+        pr = {"number": 12, "labels": [{"name": "existing"}]}
+        r.apply = False
+        task = {"operation": "backport"}
+        r.ensure_sync_label(task, target, pr)
+        self.assertEqual(task["labels"], ["enhancement"])
+        r.api.request.assert_not_called()
+        r.apply = True
+        for op in ("promote", "publish"):
+            r.ensure_sync_label({"operation": op}, target, pr)
+        r.api.request.assert_not_called()
+        r.ensure_sync_label({}, target, pr)  # legacy backport
+        r.api.request.assert_called_once_with("POST", "repos/org/apps/issues/12/labels",
+                                              {"labels": ["enhancement"]})
+        r.api.reset_mock()
+        r.ensure_sync_label(task, target, {"number": 12, "labels": [{"name": "enhancement"}]})
+        r.api.request.assert_not_called()
+
+    def test_label_failure_is_not_silently_accepted(self):
+        r = Runner.__new__(Runner)
+        r.apply = True
+        r.api = Mock()
+        r.api.request.side_effect = Error("label write failed")
+        with self.assertRaisesRegex(Error, "label write failed"):
+            r.ensure_sync_label({}, Mock(repo="org/apps"), {"number": 12})

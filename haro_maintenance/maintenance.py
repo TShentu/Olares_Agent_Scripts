@@ -165,7 +165,22 @@ class Runner:
                 "### Statement\n- [x] This PR contains only the declared application.\n\n"
                 + MARKER + json.dumps(info, sort_keys=True) + " -->")
 
+    def ensure_sync_label(self, task, target, pr):
+        """Backports are enhancement maintenance PRs, including legacy tasks."""
+        if task.get("operation", "backport") != "backport":
+            return
+        task["labels"] = ["enhancement"]
+        if self.apply:
+            labels = pr.get("labels", [])
+            names = {x.get("name") if isinstance(x, dict) else x for x in labels}
+            if "enhancement" not in names:
+                self.api.request("POST", f"repos/{target.repo}/issues/{pr['number']}/labels",
+                                 {"labels": ["enhancement"]})
+
     def process(self, task):
+        is_sync = task.get("operation", "backport") == "backport"
+        if is_sync:
+            task["labels"] = ["enhancement"]
         app, src = task["app"], task["source_sha"]
         target = self.cfg.environment(task["target"])
         source = self.cfg.environment(task["source"])
@@ -210,6 +225,7 @@ class Runner:
             info = metadata(pr.get("body")) or {}
             if managed_head not in known_heads:
                 raise Error("PR head is not the durably recorded managed commit")
+            self.ensure_sync_label(task, target, pr)
             task["head"] = managed_head
             info = metadata(pr.get("body")) or {}
             if self.apply and info.get("target_sha") != base:
@@ -230,7 +246,7 @@ class Runner:
         rule = self.cfg.raw[target.name].get("suspend_version_rule", "increase")
         if rule not in {"equal", "increase"}:
             raise Error("invalid suspend_version_rule")
-        kind, version = validate_app(self.git, src, base, app, self.login, rule)
+        kind, version = validate_app(self.git, src, base, app, self.login, rule, check_owners=not is_sync)
         if pr and (metadata(pr.get("body")) or {}).get("kind") != kind:
             raise Error("PR type changed; close existing PR before creating a new type")
         description = manifest_field(self.git.file(src, app + "/OlaresManifest.yaml"), "spec", "upgradeDescription") or ""
@@ -283,6 +299,7 @@ class Runner:
                 pr = found[0]
         task.update(pr=pr["number"], url=pr["html_url"], status="awaiting_review")
         self.save()
+        self.ensure_sync_label(task, target, pr)
         fresh = self.git.remote_head(target.upstream, target.branch) == base
         self.api.status(target.fork, commit, "success" if fresh else "failure",
                         "Source snapshot verified at target " + base[:12] if fresh else "Target advanced; refresh required")

@@ -21,7 +21,10 @@ Commands (global flags precede the subcommand):
 
 The configured daily schedule authorizes its fixed work. An interactive dry-run
 does not itself authorize an apply. Honor the user's requested scope; never bypass
-owners/version checks or substitute a different GitHub identity after an error.
+version checks or substitute a different GitHub identity after an error.
+Sync/backport PRs carry `enhancement` and do not require the GitHub identity
+to appear in app owners. Do not impose Gitbot title or file-count validation
+on these maintenance PRs. Promote/publish retain their existing owner checks.
 
 Source-snapshot policy replaces the complete named app directory, including
 target-only files. Other apps and repository files remain unchanged. Report any

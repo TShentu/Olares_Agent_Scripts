@@ -185,7 +185,7 @@ class Git:
                 "archive": archive, "old": fork, "new": upstream}
 
 
-def validate_app(git, source, target, app, login, suspend_rule="increase"):
+def validate_app(git, source, target, app, login, suspend_rule="increase", check_owners=True):
     """Validate target protocol without changing the selected source bytes."""
     app_name(app)
     files = git.text("ls-tree", "-r", "--name-only", source, "--", app).splitlines()
@@ -228,11 +228,11 @@ def validate_app(git, source, target, app, login, suspend_rule="increase"):
             raise Error("cannot suspend an app absent from target")
         kind = "SUSPEND" if suspending else ("UPDATE" if old else "NEW")
         owners_bytes = git.file(source, app + "/owners")
-        if old:
+        if old and check_owners:
             existing_owners = (git.file(target, app + "/owners") or b"").decode()
             if login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", existing_owners)}:
                 raise Error("GitHub identity is not an existing target owner")
     owners = (owners_bytes or b"").decode()
-    if login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", owners)}:
+    if check_owners and login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", owners)}:
         raise Error("GitHub identity is not an app owner")
     return kind, version

@@ -363,3 +363,7 @@ GitHub PR 使用三点 diff，比较 merge base 到 head。创建时 C 的父提
 读取 spec.submitter，缺失不推断；回流复用单应用引擎。test 开发版本领先则报告 target_ahead，不覆盖。
 手动 sync 不同步 fork main 或推进发布 jobs；每日维护保留 fork sync，应用自动扫描默认仅 Olares。
 旧自动任务在 refresh 也过滤；显式单应用 backport 与发布关联任务保留授权范围。按目标×应用筛选独立记录增量检查点。
+
+### Sync enhancement policy (2026-11-03)
+
+Sync/backport PRs are batch maintenance and must carry `enhancement`. Skip local Gitbot title-format, owner-identity and file-count gates for these tasks. Keep per-app snapshot generation, version safeguards, source/target and diff verification. Promote/publish guards are unchanged. This supersedes earlier blanket owner-check requirements for backports. Existing managed open backport PRs receive the label during apply refresh; dry-run does not write labels.

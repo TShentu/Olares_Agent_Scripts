@@ -20,13 +20,13 @@ These are routing previews only; existing `push_app` is unchanged in phase one.
 `auth.github_token` or `auth.github_token_file` supplies credentials. Explicit
 `--token-file` / `--token-env` takes precedence, then configured token/file, then
 GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN_FILE. A failed explicit credential does not
-fall back. The token must read upstreams, push forks, create PRs/statuses, and write
+fall back. The token must read upstreams, push forks, create PRs/statuses, add upstream issue labels, and write
 the configured private recovery branch. Never commit config.yaml or export files.
 
 `suspend_version_rule` is environment-specific: `increase` by default, or `equal`
 where the target repository requires matching versions. UPDATE always requires an
 increased SemVer. REMOVE requires only `.remove`, an existing target version and
-target owners. No automatic version rewrite is performed. A high test version can
+target owners for promote/publish. Sync/backport skips owner checks. No automatic version rewrite is performed. A high test version can
 therefore block a production backport instead of silently dropping its version guard.
 
 ## Commands
@@ -69,7 +69,7 @@ imported or reconciled.
 
 Managed Draft PRs regenerate on a new target base; never use a normal merge to
 refresh a source snapshot. Human branch edits, PRs ready for review, other app PRs,
-owners/version failures and PR-type changes block automatic rewriting. Unknown
+version failures, release-job owner failures and PR-type changes block automatic rewriting. Unknown
 create results are reconciled against the head branch before retry. A rejected
 closed event is suppressed until a newer source event.
 
@@ -198,3 +198,5 @@ Explicit single-app backports and release-follow-up children retain their explic
 `sync_checkpoints[target][olares|all]` migrates from legacy per-target/shared checkpoints
 before either selector advances. Choosing Olares first does not consume future all-app
 preview updates. This remains incremental discovery, not historical full backfill.
+
+Sync/backport PRs use the `enhancement` label as batch maintenance. Haro does not gate them on Gitbot title format, app owners or file count. Each PR still carries one app snapshot with verified diff and baseline; promote/publish keep their existing validation. Label write failures are reported and retried, not silently ignored.
