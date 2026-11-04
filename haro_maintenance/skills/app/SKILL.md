@@ -23,7 +23,7 @@ description: Handle !app help and implemented Haro repository maintenance comman
 | `!app route promote --from test` | `route promote --from test` | 仅查看下一级目标 |
 | `!app route publish --from test` | `route publish --from test` | 仅查看最高级目标及合并后回流目标 |
 
-执行前读取工作区 `skills/haro-reconcile/SKILL.md` 及其 `runtime.json`，从 runtime
+执行前仅读取工作区 `skills/haro-reconcile/runtime.json`，无需再加载 reconcile Skill。从 runtime
 取 script/config 绝对路径。使用 `python3 <script> --config <config> <映射后的参数>`
 单命令；不要读取或输出原始配置，`config` 子命令会返回脱敏投影。
 仅接受表中的命令和参数；不透传 `--config`、`--token-file`、`--token-env`，不执行 shell 拼接。
@@ -41,7 +41,7 @@ sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的�
 帮助必须明确：批量发布、`show/list/count/diff` 仓库历史分发查询、`update/suspend/resume/remove` 新入口、`conflicts` 专用查询尚未上线。
 路由查看不发布应用。原 `!push_app`、`!mod_app` 等指令保留，不自动重定向。
 生产新增变更会回流到低等级环境；历史差异不自动全量补齐。
-源快照覆盖选定应用目录（包含删除目标独有文件），仍受 owner/版本校验约束；
+源快照覆盖选定应用目录（包含删除目标独有文件），仍受版本校验约束（promote/publish 另有 owner 校验）；
 所有 upstream PR 由人工审核合并，合并不证明 Market 已生效。
 返回状态、源/目标、PR 链接及具体阻塞原因；禁止展示凭据。
 
@@ -79,3 +79,10 @@ sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的�
 每次处理 `!app sync` 或帮助时读取当前入口说明，不沿用旧会话中“sync 不支持参数”的结论。
 
 Sync/backport 作为批量维护操作，PR 统一添加 `enhancement` 标签，不校验 Gitbot 标题格式、owners 身份或修改文件数量。仍按单应用快照生成 PR，保留源快照、目标基线和 diff 一致性检查。promote/publish 的校验不变。
+
+## sync 短执行路径
+
+sync 使用 `python3 <script> --config <config> --summary run <允许的参数>`，一次 exec，background=true，timeoutSeconds=1500。不要接 tail、重定向或写临时 shell。
+工具返回 running 后告知已启动并结束当前回合，等待原生完成通知；禁止 process poll/log 循环。完成后仅呈现 counts、应用状态、PR 链接与错误，不再读完整报告。
+普通 sync 不是诊断请求。无论成功或 blocked，均不得自行读源码/备份/其他 Skill、改配置/Skill、写 memory、查询 cron 或整批重跑。错误简短返回，恢复由独立明确请求或现有维护任务处理。
+只按当前消息执行；help 不续跑历史任务。用户明确请求排障时才进入诊断流程。

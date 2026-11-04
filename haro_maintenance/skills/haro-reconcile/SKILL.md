@@ -47,3 +47,5 @@ Market availability. Ordinary results go to the requesting conversation; schedul
 delivery is handled by the deterministic wrapper using the configured destination.
 
 Single-app promote/publish and job/jobs are available in sibling lifecycle.py. The !app command skill defines trusted requester metadata and active-job acknowledgement. Scheduled run/refresh also processes these jobs, detects merges and audits failed follow-ups. No Market service API is used.
+
+Interactive !app sync uses the app skill fast path and --summary. Do not add diagnostics, polling loops, memory writes, or automatic batch retries. A completion notification supplies the result.

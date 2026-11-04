@@ -367,3 +367,7 @@ GitHub PR 使用三点 diff，比较 merge base 到 head。创建时 C 的父提
 ### Sync enhancement policy (2026-11-03)
 
 Sync/backport PRs are batch maintenance and must carry `enhancement`. Skip local Gitbot title-format, owner-identity and file-count gates for these tasks. Keep per-app snapshot generation, version safeguards, source/target and diff verification. Promote/publish guards are unchanged. This supersedes earlier blanket owner-check requirements for backports. Existing managed open backport PRs receive the label during apply refresh; dry-run does not write labels.
+
+### Sync execution cost (2026-11-04)
+
+Interactive sync uses --summary, one background exec and native completion notification. No polling loops, automatic diagnostics, memory writes or whole-batch retry. Full reports remain on disk; compact chat reports cap app rows at 30. App routing reads only runtime.json, not a second reconcile skill. The installer updates both skill copies and repairs the add-cdn table row. Uncertain checkpoint writes abort the run and preserve the lease for reconciliation; they must not continue mutating other apps. Main-agent context cost remains; a deterministic non-LLM command dispatcher is a separate future phase.

@@ -16,7 +16,7 @@ import yaml
 from pathlib import Path
 
 from config import Config, Error
-from github_api import GitHub, RemoteState
+from github_api import GitHub, RemoteState, CheckpointError
 from gitops import Git, app_name, validate_app, manifest_field, version_key
 
 MARKER = "<!-- haro-maintenance:"
@@ -91,7 +91,7 @@ class Runner:
             self.save()
 
     def close(self):
-        if self.apply:
+        if self.apply and not getattr(self.remote, "uncertain", False):
             self.state["lease"] = None
             self.remote.save(self.state)
             atomic_json(self.cfg.root / "state.json", self.state)
@@ -384,6 +384,10 @@ class Runner:
                 try:
                     task.pop("error", None)
                     self.process(task)
+                except CheckpointError as ex:
+                    task.update(status="blocked", error=str(ex))
+                    self.report["apps"].append(copy.deepcopy(task))
+                    raise
                 except Error as ex:
                     task.update(status="blocked", error=str(ex))
                     if str(ex).startswith(("git ", "GitHub transport", "GitHub HTTP 5", "GitHub HTTP 429")):
@@ -398,8 +402,24 @@ class Runner:
             self.report["app_filter"] = app_filter
             self.report["operation"] = "backport" if explicit_app else ("refresh" if refresh_only else "run")
             return self.report
+        except CheckpointError as ex:
+            self.report["errors"].append({"error": str(ex), "recovery": "reconcile remote state before retry"})
+            self.report["aborted"] = True
+            return self.report
         finally:
             self.close()
+
+
+def summarize(result):
+    """Bound chat output; source copy and diff evidence stay in the full report."""
+    if "apps" not in result:
+        return result
+    from collections import Counter
+    rows = result["apps"]
+    return {**{k: result[k] for k in ("mode", "started_at", "scope", "app_filter", "aborted", "errors") if k in result},
+            "counts": dict(Counter(t.get("status", "unknown") for t in rows)),
+            "apps": [{k: t[k] for k in ("app", "source", "target", "status", "url", "error") if k in t} for t in rows[:30]],
+            "omitted": max(0, len(rows)-30), "details": "!app status"}
 
 
 def parser():
@@ -407,6 +427,7 @@ def parser():
     p.add_argument("-c", "--config", default=str(Path(__file__).with_name("config.yaml")))
     p.add_argument("--token-file")
     p.add_argument("--token-env")
+    p.add_argument("--summary", action="store_true", help="compact chat output; full report remains on disk")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("config", help="show validated, redacted configuration")
     sub.add_parser("status", help="read local latest report")
@@ -452,7 +473,7 @@ def main():
                     scope=getattr(args, "scope", "all"), all_apps=getattr(args,"all_apps",False),
                     maintenance_mode=getattr(args,"maintenance",False))
                 atomic_json(cfg.root / "latest-report.json", result)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print(json.dumps(summarize(result) if args.summary else result, ensure_ascii=False, indent=None if args.summary else 2))
         return 0 if not result.get("errors") and not any(t.get("status") in {"blocked", "retry_exhausted"} for t in result.get("apps", [])) else 2
     except (Error, OSError, ValueError) as ex:
         # Exceptions must not echo configuration secrets.

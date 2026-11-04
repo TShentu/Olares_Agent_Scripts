@@ -14,11 +14,15 @@ def install(workspace):
     notice = '\n## Haro !app 维护入口\n\n`!app` 已接入 `skills/olares-commands/commands/app/SKILL.md`。收到 `!app` 时读取当前路由和该文件，不以旧会话记忆判定入口缺失。使用 `!app help` 查看已上线范围。实际 promote/publish 和 Market 精确查询尚未上线，原业务命令保留。\n'
     changes = {}
     text = router.read_text()
+    broken = '| `!add_cdn` | `commands/app` | `!app` | 已实现的 Haro 仓库维护能力 |\n| `commands/add-cdn` |'
+    text = text.replace(broken, '| `!add_cdn` | `commands/add-cdn` |')
+    if text != router.read_text():
+        changes[router] = text
     if route not in text:
         if '| `!app` |' in text:
             raise ValueError('existing !app route needs manual reconciliation')
         text = text.replace('| `!add_cdn` |', route + '\n| `!add_cdn` |', 1)
-        text = text.replace('| `commands/add-cdn` |', '| `commands/app` | `!app` | 已实现的 Haro 仓库维护能力 |\n| `commands/add-cdn` |', 1)
+        text = text.replace('\n| `commands/add-cdn` |', '\n| `commands/app` | `!app` | 已实现的 Haro 仓库维护能力 |\n| `commands/add-cdn` |', 1)
         text += '\n`!app` 按完整 token 匹配；`!appstore` 不匹配。帮助和可用子命令以 `commands/app/SKILL.md` 为准。\n'
         assert route in text
         changes[router] = text
@@ -40,6 +44,9 @@ def install(workspace):
     source = Path(__file__).parent / 'skills/app/SKILL.md'
     dest = workspace / 'skills/olares-commands/commands/app/SKILL.md'
     changes[dest] = source.read_text()
+    reconcile = workspace / 'skills/haro-reconcile/SKILL.md'
+    if (reconcile.parent / 'runtime.json').exists():
+        changes[reconcile] = (Path(__file__).parent / 'skills/haro-reconcile/SKILL.md').read_text()
     for path, text in changes.items():
         if path.exists():
             raw = path.read_bytes()
