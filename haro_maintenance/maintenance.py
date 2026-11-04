@@ -102,13 +102,15 @@ class Runner:
                 continue
             self.api.check_environment(e)
             upstream = self.git.fetch(e.upstream, e.branch, "refs/haro/" + e.name + "/upstream")
-            fork = self.git.fetch(e.github, e.branch, "refs/haro/" + e.name + "/fork")
             self.heads[e.name] = upstream
             if not sync_forks:
                 continue
+            fork = self.git.fetch(e.github, e.branch, "refs/haro/" + e.name + "/fork")
             try:
                 self.save()
                 self.report["forks"].append(self.git.sync_fork(e, upstream, fork, self.apply))
+            except CheckpointError:
+                raise
             except Error as ex:
                 self.report["errors"].append({"environment": e.name, "error": str(ex)})
 
