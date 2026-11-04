@@ -202,3 +202,5 @@ preview updates. This remains incremental discovery, not historical full backfil
 Sync/backport PRs use the `enhancement` label as batch maintenance. Haro does not gate them on Gitbot title format, app owners or file count. Each PR still carries one app snapshot with verified diff and baseline; promote/publish keep their existing validation. Label write failures are reported and retried, not silently ignored.
 
 Notification routing: `notifications.target` receives fixed daily summaries; optional `notifications.status_target` receives refresh updates and native failure alerts. Without it, legacy delivery is preserved. Interactive replies remain in the requesting conversation/thread.
+
+Promote/publish owners are parsed from YAML `owners[].username` (legacy plain-login files remain supported). Explicit `@organization` entries authorize an authenticated active member verified through GitHub; organization membership alone does not override unrelated owners. Both existing target and source owners are checked. Titles/comments never authorize; unavailable membership checks fail closed. Membership results are cached only within one invocation.

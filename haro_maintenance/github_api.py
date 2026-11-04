@@ -24,6 +24,7 @@ class ApiError(Error):
 class GitHub:
     def __init__(self, token):
         self.token = token
+        self.memberships = {}
 
     def request(self, method, path, data=None):
         body = json.dumps(data).encode() if data is not None else None
@@ -46,6 +47,21 @@ class GitHub:
                     time.sleep(2 ** attempt)
                     continue
                 raise Error("GitHub transport error; write outcome may be unknown") from None
+
+    def is_org_member(self, org, login):
+        key = (org.casefold(), login.casefold())
+        if key not in self.memberships:
+            try:
+                member = self.request("GET", "user/memberships/orgs/" + urllib.parse.quote(org, safe=""))
+            except ApiError as ex:
+                if ex.status == 404:
+                    self.memberships[key] = False
+                    return False
+                raise Error("cannot verify organization owner membership: " + str(ex)) from None
+            self.memberships[key] = (member.get("state") == "active" and
+                (member.get("user") or {}).get("login", "").casefold() == login.casefold() and
+                (member.get("organization") or {}).get("login", "").casefold() == org.casefold())
+        return self.memberships[key]
 
     def pages(self, path):
         result = []

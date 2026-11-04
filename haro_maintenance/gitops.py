@@ -185,7 +185,29 @@ class Git:
                 "archive": archive, "old": fork, "new": upstream}
 
 
-def validate_app(git, source, target, app, login, suspend_rule="increase", check_owners=True):
+def owner_authorized(raw, login, org_member=None):
+    """Read only owner usernames, never titles/comments or arbitrary YAML words."""
+    try:
+        data = yaml.safe_load(raw or b"")
+    except yaml.YAMLError:
+        raise Error("invalid owners YAML") from None
+    if isinstance(data, dict):
+        data = data.get("owners", [])
+    if isinstance(data, str):
+        data = data.splitlines()  # legacy plain-login files
+    if not isinstance(data, list):
+        return False
+    names = []
+    for item in data:
+        value = item.get("username") if isinstance(item, dict) else item
+        if isinstance(value, str) and re.fullmatch(r"@?[A-Za-z0-9_-]+", value.strip()):
+            names.append(value.strip())
+    if any(name.lstrip("@").casefold() == login.casefold() for name in names):
+        return True
+    return bool(org_member and any(org_member(name[1:]) for name in names if name.startswith("@")))
+
+
+def validate_app(git, source, target, app, login, suspend_rule="increase", check_owners=True, org_member=None):
     """Validate target protocol without changing the selected source bytes."""
     app_name(app)
     files = git.text("ls-tree", "-r", "--name-only", source, "--", app).splitlines()
@@ -229,10 +251,9 @@ def validate_app(git, source, target, app, login, suspend_rule="increase", check
         kind = "SUSPEND" if suspending else ("UPDATE" if old else "NEW")
         owners_bytes = git.file(source, app + "/owners")
         if old and check_owners:
-            existing_owners = (git.file(target, app + "/owners") or b"").decode()
-            if login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", existing_owners)}:
+            existing_owners = git.file(target, app + "/owners")
+            if not owner_authorized(existing_owners, login, org_member):
                 raise Error("GitHub identity is not an existing target owner")
-    owners = (owners_bytes or b"").decode()
-    if check_owners and login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", owners)}:
+    if check_owners and not owner_authorized(owners_bytes, login, org_member):
         raise Error("GitHub identity is not an app owner")
     return kind, version

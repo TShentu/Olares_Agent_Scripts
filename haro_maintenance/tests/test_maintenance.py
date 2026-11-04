@@ -176,6 +176,20 @@ class GitTests(unittest.TestCase):
         with self.assertRaises(Error):
             validate_app(self.git, self.target, self.source, "app", "stranger", check_owners=False)
 
+    def test_org_owner_applies_to_source_and_existing_target(self):
+        original = self.git.file
+        def files(commit, path):
+            if path == "app/owners":
+                org = "sourceorg" if commit == self.source else "targetorg"
+                return ("owners:\n- username: '@" + org + "'\n  title: Olares\n").encode()
+            return original(commit, path)
+        with patch.object(self.git, "file", side_effect=files):
+            member = Mock(return_value=True)
+            self.assertEqual(validate_app(self.git, self.source, self.target, "app", "stranger", org_member=member), ("UPDATE", "2.0.0"))
+            self.assertEqual({c.args[0] for c in member.call_args_list}, {"sourceorg", "targetorg"})
+            with self.assertRaisesRegex(Error, "existing target owner"):
+                validate_app(self.git, self.source, self.target, "app", "stranger", org_member=lambda org: org == "sourceorg")
+
     def test_detect_only_changed_apps(self):
         self.assertEqual(self.git.changed_apps(self.base, self.source), ["app"])
 

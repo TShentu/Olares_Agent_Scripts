@@ -248,7 +248,8 @@ class Runner:
         rule = self.cfg.raw[target.name].get("suspend_version_rule", "increase")
         if rule not in {"equal", "increase"}:
             raise Error("invalid suspend_version_rule")
-        kind, version = validate_app(self.git, src, base, app, self.login, rule, check_owners=not is_sync)
+        kind, version = validate_app(self.git, src, base, app, self.login, rule, check_owners=not is_sync,
+                                     org_member=lambda org: self.api.is_org_member(org, self.login))
         if pr and (metadata(pr.get("body")) or {}).get("kind") != kind:
             raise Error("PR type changed; close existing PR before creating a new type")
         description = manifest_field(self.git.file(src, app + "/OlaresManifest.yaml"), "spec", "upgradeDescription") or ""
