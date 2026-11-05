@@ -375,3 +375,7 @@ Interactive sync uses --summary, one background exec and native completion notif
 ### Explicit authorization before diagnosis (2026-11-04)
 
 Supersedes Agent-driven recovery guidance: ordinary errors are reported and execution stops. Diagnostics, alternate commands and retries require explicit user authorization. Progress feedback remains allowed. Normal script workflows and configured schedules keep their scope. `clean_workspace_policy.py` archives conflicting workspace rules, recent diagnostic narratives and automatic triage triggers; backups are private and outside the daily memory path. Routine commands load only their route and runtime locator.
+
+## 2026-11-05 聊天默认执行
+
+!app promote/publish/sync/backport/refresh 默认执行，由 Skill 补 --apply；显式 --dry-run 仅预检查，转换时移除该参数且不加 --apply。旧 --apply 兼容，两参数同时给出报冲突。只读命令不变。脚本 CLI、定时任务、并发确认和错误停止规则不变。

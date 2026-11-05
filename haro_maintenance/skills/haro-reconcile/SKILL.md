@@ -9,7 +9,7 @@ Read the deployed `runtime.json` beside this skill to locate `script` and `confi
 Invoke Python with an argv list and absolute paths. Never print or load the raw
 configuration into chat: it can contain GitHub credentials.
 
-Commands (global flags precede the subcommand):
+Python CLI commands (global flags precede the subcommand; these defaults are not chat defaults):
 
 - `python3 <script> --config <config> config`: validate configuration and show a redacted projection.
 - `python3 <script> --config <config> status`: latest maintenance report.
@@ -18,6 +18,8 @@ Commands (global flags precede the subcommand):
 - `python3 <script> --config <config> refresh --apply`: refresh tracked PRs without fork synchronization or new discovery.
 - `python3 <script> --config <config> backport <app> --from <source> --to <targets>`: preview an explicitly requested backport; append `--apply` to create Draft PRs when requested.
 - `python3 <script> --config <config> route promote|publish --from <source>`: resolve routing only. This does not publish an app.
+
+For `!app` chat commands, follow the app skill: promote/publish/sync/backport/refresh execute by default (append `--apply`); `--dry-run` is consumed by the Agent and omits `--apply`. Read-only commands remain read-only. Never pass `--dry-run` to Python.
 
 The configured daily schedule authorizes its fixed work. An interactive dry-run
 does not itself authorize an apply. Honor the user's requested scope; never bypass

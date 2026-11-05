@@ -139,7 +139,7 @@ audit. Do not reset app repos or delete human branches. No upstream PR was auto-
 Bootstrap installs `!app` into the existing `olares-commands` router and updates
 AGENTS.md, preserving prior content with hash-named backups. Start with `!app help`.
 Implemented commands: `config`, `status`, `sync`, `refresh`, `backport`, and `route`.
-Write operations require explicit `--apply`; `route promote/publish` only resolves
+Chat write commands execute by default; add `--dry-run` for preflight only. The Skill consumes `--dry-run` and otherwise passes `--apply` to Python. Explicit `--apply` remains compatible; both flags together are rejected. Read-only commands never receive `--apply`. `route promote/publish` only resolves
 targets. Single-app promote/publish and job/jobs are implemented by lifecycle.py. Batch release and repository-history distribution queries remain separate.
 
 ## Single-app lifecycle jobs
@@ -151,7 +151,7 @@ python3 lifecycle.py --config /absolute/config.yaml job app-JOB_ID
 python3 lifecycle.py --config /absolute/config.yaml jobs --app dify
 ```
 
-No `--apply` means preflight. `--actor` and `--request-id` come from trusted channel
+At the Python CLI level, no `--apply` means preflight (unchanged). `--actor` and `--request-id` come from trusted channel
 metadata in the Skill, never from user-supplied identity arguments. Requests capture
 the source repository commit; local uncommitted files are not included. Titles use
 the selected snapshot's upgradeDescription (first 20 words), or explicit --title.
@@ -182,7 +182,7 @@ times, then remains visible as needs_attention; known PRs still get merge/close 
 - `!app sync --preview --all`: all submitters, prod to preview only.
 - `!app sync --all` is rejected; all third-party apps must not be sent to test implicitly.
 
-All default to preflight; add --apply for single-app backport Draft PR processing.
+Chat sync commands default to single-app backport Draft PR processing; add `--dry-run` for preflight only.
 The filter reads the static `spec.submitter` field without evaluating Helm templates;
 missing/unreadable values are excluded, not inferred from developer/owners/commit author.
 For .remove entries, the most recent historical Manifest supplies the submitter.
