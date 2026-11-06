@@ -383,3 +383,5 @@ Supersedes Agent-driven recovery guidance: ordinary errors are reported and exec
 ## 2026-11-06 refresh 周期
 
 本实例仅将 refresh 改为固定每 5 小时；每日完整 run 保留 03:00。统一配置使用 maintenance.refresh_every，bootstrap 优先转换为 --every；旧 refresh_schedule 保持兼容。后台首次提交仍立即启动，合并检查及失败队列恢复最多等待一个 refresh 周期。
+
+2026-11-06 后续决定：本实例 refresh 恢复每 10 分钟（refresh_schedule: "*/10 * * * *"），移除 refresh_every。保留固定间隔配置能力。检查频率和通知频率分开评估；尚未修改通知策略。
