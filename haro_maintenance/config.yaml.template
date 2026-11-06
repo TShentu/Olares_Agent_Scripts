@@ -37,6 +37,7 @@ recovery:
   repository: YOUR_ACCOUNT/Olares_Agent_Scripts
   branch: haro-maintenance-state
 notifications:
+  refresh_summary_seconds: 18000 # Ordinary deltas every 5h; new errors immediately.
   channel: feishu
   target: ""
   # Status/refresh and failure alerts; target above is the scheduled summary destination.
