@@ -152,7 +152,6 @@ def main():
         lines.append(str(e))
     if result.get("error"):
         lines.append(result["error"])
-    lines.append("PR 由人工审核合并；合并不代表 Market 已生效。")
     # Native command delivery runs after the command exits. Calling the gateway
     # recursively with message send can deadlock while its command queue is held.
     print("\n".join(lines))

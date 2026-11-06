@@ -49,7 +49,8 @@ sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的�
 路由查看不发布应用。原 `!push_app`、`!mod_app` 等指令保留，不自动重定向。
 生产新增变更会回流到低等级环境；历史差异不自动全量补齐。
 源快照覆盖选定应用目录（包含删除目标独有文件），仍受版本校验约束（promote/publish 另有 owner 校验）；
-所有 upstream PR 由人工审核合并，合并不证明 Market 已生效。
+所有 upstream PR 由人工审核合并。
+回执只报告本次操作的实际状态、结果及必要错误，不附加固定的 Market 生效提醒。
 返回状态、源/目标、PR 链接及具体阻塞原因；禁止展示凭据。
 
 状态报告的空数组不能推出仓库已同步或没有新增生产更新：定时 refresh 不检查 fork，也不发现新增更新，可能写出空 forks/apps。若报告未记录 run/refresh 类型，说明无法据此判断检查范围；需要 `!app sync --dry-run` 做完整预检查。不要推荐不存在的 `!app compare`。
