@@ -39,7 +39,9 @@ def install(cfg, apply=False):
             raise Error("duplicate Haro schedule declarations")
         command = [sys.executable, script, "--config", str(cfg.path), mode]
         expr = cfg.maintenance.get("schedule" if mode == "run" else "refresh_schedule", default)
-        args = ["--name", key, "--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai"),
+        every = cfg.maintenance.get("refresh_every") if mode == "refresh" else None
+        timing = ["--every", every] if every else ["--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai")]
+        args = ["--name", key, *timing,
                 "--command-argv", json.dumps(command), "--timeout-seconds", "1500",
                 "--announce", "--channel", notifications.get("channel", "feishu"),
                 "--to", (notifications.get("status_target") or notifications["target"]) if mode == "refresh" else notifications["target"]]
@@ -53,7 +55,7 @@ def install(cfg, apply=False):
                 r = cli("cron", "add", *args, "--declaration-key", key)
             result.append({"mode": mode, "result": r})
         else:
-            result.append({"mode": mode, "schedule": expr, "command": command, "existing": bool(matched)})
+            result.append({"mode": mode, "schedule": {"every": every} if every else expr, "command": command, "existing": bool(matched)})
     if apply:
         workspace = Path((cfg.raw.get("runtime") or {}).get("openclaw_workspace", str(Path.home() / ".openclaw/workspace")))
         skill = workspace / "skills/haro-reconcile"

@@ -76,12 +76,12 @@ sync 默认仅处理 `OlaresManifest.yaml` 的 `spec.submitter` 为 Olares 的�
 
 先执行预检查，展示源/目标、版本、差异和同应用其他 active jobs。默认执行模式下，预检查成功且无并发提示后直接带 `--apply` 提交，不追加确认问题；`--dry-run` 到此结束。预检查出错则停止，不能继续 apply。
 当返回 `confirmation_required` 时展示 warnings 内 job ID、环境和状态；只有用户确认这批操作后，才携带内部 `--ack-active <逗号分隔IDs>` 再提交。不能自己确认或沿用别的用户确认。若列表变化，重新展示。
-`queued` 仅表示入队，不能说 PR 已创建。返回 `!app job <id>`；任务由后台进程及十分钟心跳持续处理。
+`queued` 仅表示入队，不能说 PR 已创建。返回 `!app job <id>`；任务立即由后台进程处理，定时 refresh 按配置间隔恢复队列和检测合并（当前实例每 5 小时）。
 合并后，跳级发布自动创建中间环境 backport；使用实际合并内容，如生产随后有新更新则以更新事件接续。关闭未合并不触发。
 回流失败不改变生产发布已合并状态；显示关联任务及 needs_engineer，日常检查持续复核仓库一致性。
 首版仅单应用，不把批量参数拆成未经确认的多次发布。
 
-`job/jobs` 的唯一数据源是 lifecycle.py 查询出的 GitHub 恢复状态。查询成功就返回结果；空列表只说明没有匹配操作记录，不能推出定时任务不存在。不要为 job 查询调用 automations/cron 清单或提议新增例行检查，现有十分钟 refresh 已负责队列推进。预检查不保存 job；仅执行模式返回的持久化 job ID 可供后续查询。
+`job/jobs` 的唯一数据源是 lifecycle.py 查询出的 GitHub 恢复状态。查询成功就返回结果；空列表只说明没有匹配操作记录，不能推出定时任务不存在。不要为 job 查询调用 automations/cron 清单或提议新增例行检查，现有 refresh 已按配置间隔负责队列推进。预检查不保存 job；仅执行模式返回的持久化 job ID 可供后续查询。
 
 每次处理 `!app sync` 或帮助时读取当前入口说明，不沿用旧会话中“sync 不支持参数”的结论。
 

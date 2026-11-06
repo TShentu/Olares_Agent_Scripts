@@ -379,3 +379,7 @@ Supersedes Agent-driven recovery guidance: ordinary errors are reported and exec
 ## 2026-11-05 聊天默认执行
 
 !app promote/publish/sync/backport/refresh 默认执行，由 Skill 补 --apply；显式 --dry-run 仅预检查，转换时移除该参数且不加 --apply。旧 --apply 兼容，两参数同时给出报冲突。只读命令不变。脚本 CLI、定时任务、并发确认和错误停止规则不变。
+
+## 2026-11-06 refresh 周期
+
+本实例仅将 refresh 改为固定每 5 小时；每日完整 run 保留 03:00。统一配置使用 maintenance.refresh_every，bootstrap 优先转换为 --every；旧 refresh_schedule 保持兼容。后台首次提交仍立即启动，合并检查及失败队列恢复最多等待一个 refresh 周期。

@@ -92,7 +92,11 @@ python3 bootstrap.py --config /absolute/config.yaml --apply
 ```
 
 - Daily 03:00 Asia/Shanghai: fork sync, discover new source changes, backport PRs.
-- Every 10 minutes: refresh tracked PRs without fork synchronization or new discovery.
+- Every 5 hours in the new template: refresh tracked PRs without fork synchronization or new discovery.
+  Set `maintenance.refresh_every: "5h"` for a fixed interval. It takes precedence over
+  legacy `refresh_schedule`; existing configs without it retain their cron schedule.
+  Merge detection and queued-job recovery can wait up to this interval; initial
+  submission still starts its background worker immediately.
 
 The wrapper emits daily summaries and meaningful refresh changes; OpenClaw's native
 command announcement delivers them to the configured Feishu target. Quiet refreshes
