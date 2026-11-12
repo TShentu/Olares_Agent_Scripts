@@ -12,6 +12,8 @@ import sys
 import time
 import uuid
 
+import yaml
+
 from config import Config, Error
 from github_api import GitHub
 from gitops import app_name
@@ -164,6 +166,38 @@ def audit(r):
     r.save()
 
 
+def chart_version(git, commit, app):
+    """Chart version of an app at a commit; None when it cannot be read."""
+    raw = git.file(commit, app + '/Chart.yaml')
+    if not raw:
+        return None
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return None
+    return str(data.get('version')) if isinstance(data, dict) and data.get('version') else None
+
+
+def identical_release(r, app, source, target, source_sha):
+    """Block a release whose source and target already hold identical app content."""
+    try:
+        r.fetch(sync_forks=False, names={source, target})
+        target_head = r.heads.get(target)
+        source_tree = r.git.tree(source_sha, app)
+        target_tree = r.git.tree(target_head, app) if target_head else None
+        if not source_tree or source_tree != target_tree:
+            return None
+        versions = {'source': chart_version(r.git, source_sha, app),
+                    'target': chart_version(r.git, target_head, app)}
+    except (Error, OSError):
+        # An unreadable comparison never blocks a submission; the worker re-checks.
+        return None
+    return {'status': 'blocked', 'reason': 'identical', 'app': app,
+            'source': source, 'target': target, 'source_sha': source_sha, 'target_sha': target_head,
+            'versions': versions,
+            'message': 'source and target already contain identical app content; nothing to submit'}
+
+
 def submit(r, operation, app, source, actor, title=None, ack=None, request_id=None):
     app_name(app)
     route = r.cfg.route(operation, source)
@@ -179,6 +213,10 @@ def submit(r, operation, app, source, actor, title=None, ack=None, request_id=No
         # Repository HEAD captured at submission; worker never silently switches source.
         env = r.cfg.environment(route['source'])
         sha = r.api.request('GET', f'repos/{env.repo}/commits/{env.branch}')['sha']
+        # Preflight guard: an identical source/target pair has nothing to submit.
+        blocked = identical_release(r, app, route['source'], route['target'], sha)
+        if blocked:
+            return blocked
         duplicate = next((j for j in jobs.values() if j['operation'] == operation and j['app'] == app
                           and j['source'] == route['source'] and j['target'] == route['target']
                           and j['source_sha'] == sha and j['status'] not in {'rejected', 'needs_attention'}), None)

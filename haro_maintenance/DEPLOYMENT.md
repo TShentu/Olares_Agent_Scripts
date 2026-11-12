@@ -174,3 +174,19 @@ was also verified after replacing shared temporary filenames with unique files.
   Third-party agentj only appeared in the all-app preview mode. No PR was created.
 - Main command router, AGENTS context and the app skill now state the current defaults.
   Backup: backups/haro-sync-3249805.secret.yaml, private mode 0600.
+
+## 2026-11-12 Identical release preflight guard
+
+- Preflight now compares the selected source snapshot with the current target snapshot by
+  full application-directory tree hash, not by chart version alone. When both hold
+  identical content the request is refused with `status: blocked` and
+  `reason: identical`, reporting both chart versions; no job is enqueued and no PR
+  is created. The chat skill answers "两边的版本是一样的，无法提交" and stops.
+- An unreadable comparison fails open and never blocks a valid submission; the worker
+  re-checks before creating anything.
+- Verified live: `promote wisev3 --from test` returns blocked/identical (1.2.69 on
+  both sides, identical tree fc49e9df5c58d7c6b91b3cd1fbd702ad947e2327). A differing
+  app is unaffected and still reaches the existing open-PR check.
+- Local and worktree suites: 76 tests passed, including three new cases (identical
+  blocked before enqueue, unreadable comparison still queues, differing release
+  queues normally). Backup: backups/before-identical-guard-20261112/.

@@ -161,6 +161,10 @@ the source repository commit; local uncommitted files are not included. Titles u
 the selected snapshot's upgradeDescription (first 20 words), or explicit --title.
 Submissions with active same-app operations return a preview and require acknowledging
 that exact active ID set using --ack-active. Requests for the same message are idempotent.
+Preflight compares the selected source snapshot with the current target snapshot. When both
+hold identical app content the request is refused with `status: blocked` and
+`reason: identical`; no job is enqueued and no PR is created. An unreadable comparison
+never blocks a submission; the worker re-checks before creating anything.
 
 Apply durably enqueues before launching a detached worker. The existing ten-minute
 refresh recovers queued jobs and monitors PR merges; no extra cron is required. Query

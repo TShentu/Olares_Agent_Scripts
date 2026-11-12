@@ -474,6 +474,35 @@ class GitTests(unittest.TestCase):
         self.git.run('fetch',str(self.work),'+refs/heads/source:refs/heads/source')
         self.assertEqual(self.git.submitter(removed,'app'),'Olares')
 
+    def test_identical_release_is_blocked_before_enqueue(self):
+        from lifecycle import submit
+        r = self.release_runner()
+        r.heads['prod'] = self.source
+        result = submit(r, 'publish', 'app', 'test', 'feishu:u')
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['reason'], 'identical')
+        self.assertEqual(result['source'], 'test')
+        self.assertEqual(result['target'], 'prod')
+        self.assertEqual(result['versions'], {'source': '2.0.0', 'target': '2.0.0'})
+        self.assertEqual(r.state['jobs'], {})
+        self.assertEqual(r.api.creates, 0)
+
+    def test_identical_release_block_survives_unreadable_comparison(self):
+        from lifecycle import submit
+        r = self.release_runner()
+        def boom(*args, **kwargs):
+            raise Error('git fetch failed (exit 128)')
+        r.fetch = boom
+        result = submit(r, 'publish', 'app', 'test', 'feishu:u')
+        self.assertEqual(result['job']['status'], 'queued')
+        self.assertEqual(len(r.state['jobs']), 1)
+
+    def test_different_release_is_not_blocked(self):
+        from lifecycle import submit
+        r = self.release_runner()
+        result = submit(r, 'publish', 'app', 'test', 'feishu:u')
+        self.assertEqual(result['job']['status'], 'queued')
+
     def test_release_submit_queues_and_deduplicates_message(self):
         from lifecycle import submit
         r = self.release_runner()
