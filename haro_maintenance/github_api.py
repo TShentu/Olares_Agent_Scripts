@@ -11,6 +11,10 @@ import urllib.request
 from config import Error
 
 
+class CheckpointError(Error):
+    """A failed state write stops all further mutations in this run."""
+
+
 class ApiError(Error):
     def __init__(self, status, endpoint):
         self.status = status
@@ -20,6 +24,7 @@ class ApiError(Error):
 class GitHub:
     def __init__(self, token):
         self.token = token
+        self.memberships = {}
 
     def request(self, method, path, data=None):
         body = json.dumps(data).encode() if data is not None else None
@@ -42,6 +47,21 @@ class GitHub:
                     time.sleep(2 ** attempt)
                     continue
                 raise Error("GitHub transport error; write outcome may be unknown") from None
+
+    def is_org_member(self, org, login):
+        key = (org.casefold(), login.casefold())
+        if key not in self.memberships:
+            try:
+                member = self.request("GET", "user/memberships/orgs/" + urllib.parse.quote(org, safe=""))
+            except ApiError as ex:
+                if ex.status == 404:
+                    self.memberships[key] = False
+                    return False
+                raise Error("cannot verify organization owner membership: " + str(ex)) from None
+            self.memberships[key] = (member.get("state") == "active" and
+                (member.get("user") or {}).get("login", "").casefold() == login.casefold() and
+                (member.get("organization") or {}).get("login", "").casefold() == org.casefold())
+        return self.memberships[key]
 
     def pages(self, path):
         result = []
@@ -78,6 +98,7 @@ class RemoteState:
     def __init__(self, api, repo, branch="haro-maintenance-state", path="haro-state.json"):
         self.api, self.repo, self.branch, self.path = api, repo, branch, path
         self.sha = None
+        self.uncertain = False
 
     def load(self):
         endpoint = f"repos/{self.repo}/contents/{self.path}?ref=" + urllib.parse.quote(self.branch, safe="")
@@ -114,9 +135,14 @@ class RemoteState:
         try:
             result = self.api.request("PUT", f"repos/{self.repo}/contents/{self.path}", payload)
             self.sha = result["content"]["sha"]
-        except Error:
+        except Error as cause:
+            self.uncertain = True
             old_sha = self.sha
-            actual = self.load()
+            try:
+                actual = self.load()
+            except Error:
+                raise CheckpointError("checkpoint reconciliation failed; stop this run") from None
             if actual != value:
                 self.sha = old_sha
-                raise Error("remote checkpoint changed or write is uncertain; stop this run") from None
+                raise CheckpointError("remote checkpoint changed or write is uncertain; stop this run (" + str(cause) + ")") from None
+            self.uncertain = False

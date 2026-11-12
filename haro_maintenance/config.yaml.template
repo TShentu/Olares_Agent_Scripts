@@ -24,7 +24,7 @@ maintenance:
   enabled: false
   timezone: Asia/Shanghai
   schedule: "0 3 * * *"
-  refresh_schedule: "*/10 * * * *"
+  refresh_every: "5h" # Fixed interval; takes precedence over legacy refresh_schedule.
   fork_sync:
     mode: mirror_upstream
     preserve_divergent_head: true
@@ -37,5 +37,8 @@ recovery:
   repository: YOUR_ACCOUNT/Olares_Agent_Scripts
   branch: haro-maintenance-state
 notifications:
+  refresh_summary_seconds: 18000 # Ordinary deltas every 5h; new errors immediately.
   channel: feishu
   target: ""
+  # Status/refresh and failure alerts; target above is the scheduled summary destination.
+  status_target: ""

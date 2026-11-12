@@ -9,7 +9,7 @@ Read the deployed `runtime.json` beside this skill to locate `script` and `confi
 Invoke Python with an argv list and absolute paths. Never print or load the raw
 configuration into chat: it can contain GitHub credentials.
 
-Commands (global flags precede the subcommand):
+Python CLI commands (global flags precede the subcommand; these defaults are not chat defaults):
 
 - `python3 <script> --config <config> config`: validate configuration and show a redacted projection.
 - `python3 <script> --config <config> status`: latest maintenance report.
@@ -19,9 +19,14 @@ Commands (global flags precede the subcommand):
 - `python3 <script> --config <config> backport <app> --from <source> --to <targets>`: preview an explicitly requested backport; append `--apply` to create Draft PRs when requested.
 - `python3 <script> --config <config> route promote|publish --from <source>`: resolve routing only. This does not publish an app.
 
+For `!app` chat commands, follow the app skill: promote/publish/sync/backport/refresh execute by default (append `--apply`); `--dry-run` is consumed by the Agent and omits `--apply`. Read-only commands remain read-only. Never pass `--dry-run` to Python.
+
 The configured daily schedule authorizes its fixed work. An interactive dry-run
 does not itself authorize an apply. Honor the user's requested scope; never bypass
-owners/version checks or substitute a different GitHub identity after an error.
+version checks or substitute a different GitHub identity after an error.
+Sync/backport PRs carry `enhancement` and do not require the GitHub identity
+to appear in app owners. Do not impose Gitbot title or file-count validation
+on these maintenance PRs. Promote/publish retain their existing owner checks.
 
 Source-snapshot policy replaces the complete named app directory, including
 target-only files. Other apps and repository files remain unchanged. Report any
@@ -42,3 +47,11 @@ Return app, source/target, task status, PR URL and concise error. Distinguish Dr
 PR created, merged, and expected Market publication; merging is not proof of live
 Market availability. Ordinary results go to the requesting conversation; scheduled
 delivery is handled by the deterministic wrapper using the configured destination.
+
+Single-app promote/publish and job/jobs are available in sibling lifecycle.py. The !app command skill defines trusted requester metadata and active-job acknowledgement. Scheduled run/refresh also processes these jobs, detects merges and audits failed follow-ups. No Market service API is used.
+
+Interactive !app sync uses the app skill fast path and --summary. Do not add diagnostics, polling loops, memory writes, or automatic batch retries. A completion notification supplies the result.
+
+## Error boundary
+
+Follow AGENTS.md execution/error policy. On failure report the returned error and stop. Do not trigger triage, source inspection, alternate commands, retries, memory writes or recovery without explicit user authorization. Progress feedback may use a minimal status query for the current task.

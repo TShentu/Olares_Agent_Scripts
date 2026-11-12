@@ -39,10 +39,15 @@ def install(cfg, apply=False):
             raise Error("duplicate Haro schedule declarations")
         command = [sys.executable, script, "--config", str(cfg.path), mode]
         expr = cfg.maintenance.get("schedule" if mode == "run" else "refresh_schedule", default)
-        args = ["--name", key, "--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai"),
+        every = cfg.maintenance.get("refresh_every") if mode == "refresh" else None
+        timing = ["--every", every] if every else ["--cron", expr, "--tz", cfg.maintenance.get("timezone", "Asia/Shanghai")]
+        args = ["--name", key, *timing,
                 "--command-argv", json.dumps(command), "--timeout-seconds", "1500",
                 "--announce", "--channel", notifications.get("channel", "feishu"),
-                "--to", notifications["target"]]
+                "--to", (notifications.get("status_target") or notifications["target"]) if mode == "refresh" else notifications["target"]]
+        if notifications.get("status_target"):
+            args += ["--failure-alert-channel", notifications.get("channel", "feishu"),
+                     "--failure-alert-to", notifications["status_target"], "--failure-alert-mode", "announce"]
         if apply:
             if matched:
                 r = cli("cron", "edit", matched[0]["id"], *args, "--enable")
@@ -50,7 +55,7 @@ def install(cfg, apply=False):
                 r = cli("cron", "add", *args, "--declaration-key", key)
             result.append({"mode": mode, "result": r})
         else:
-            result.append({"mode": mode, "schedule": expr, "command": command, "existing": bool(matched)})
+            result.append({"mode": mode, "schedule": {"every": every} if every else expr, "command": command, "existing": bool(matched)})
     if apply:
         workspace = Path((cfg.raw.get("runtime") or {}).get("openclaw_workspace", str(Path.home() / ".openclaw/workspace")))
         skill = workspace / "skills/haro-reconcile"
@@ -59,6 +64,8 @@ def install(cfg, apply=False):
         shutil.copytree(Path(__file__).parent / "skills/haro-reconcile", skill, dirs_exist_ok=True)
         (skill / "runtime.json").write_text(json.dumps({"script": str(Path(__file__).with_name("maintenance.py").resolve()), "config": str(cfg.path)}, indent=2))
         result.append({"skill": str(skill)})
+        from install_app_route import install as install_app_route
+        result.append(install_app_route(workspace))
     return result
 
 

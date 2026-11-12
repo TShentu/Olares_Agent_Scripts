@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import textwrap
 from pathlib import Path
 
 import yaml
@@ -17,6 +18,30 @@ def app_name(name):
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name):
         raise Error("invalid app directory name")
     return name
+
+
+def manifest_field(raw, section, key):
+    """Read a static field without evaluating Helm templates elsewhere in YAML."""
+    lines = (raw or b'').decode().splitlines()
+    roots = [i for i, line in enumerate(lines) if re.fullmatch(re.escape(section) + r":\s*(?:#.*)?", line)]
+    if len(roots) != 1:
+        return None
+    start = roots[0] + 1
+    end = next((i for i in range(start, len(lines)) if lines[i] and not lines[i][0].isspace() and not lines[i].startswith('#')), len(lines))
+    block = lines[start:end]
+    fields = [(i, len(line)-len(line.lstrip())) for i,line in enumerate(block)
+              if re.match(r"^\s+[A-Za-z_][A-Za-z0-9_-]*:", line)]
+    indent = min((n for _,n in fields), default=0)
+    matches = [i for i,n in fields if n == indent and re.match(r"^\s+" + re.escape(key) + r":",block[i])]
+    if len(matches) != 1:
+        return None
+    i = matches[0]
+    j = next((j for j in range(i+1,len(block)) if block[j].strip() and len(block[j])-len(block[j].lstrip()) <= indent), len(block))
+    try:
+        value = yaml.safe_load(textwrap.dedent("\n".join(block[i:j])))
+        return value.get(key) if isinstance(value,dict) else None
+    except yaml.YAMLError:
+        return None
 
 
 def version_key(value):
@@ -99,6 +124,15 @@ class Git:
         return sorted(a for a in names if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", a) and
                       any(self.tree(commit, a + "/" + f) for f in ("OlaresManifest.yaml", ".remove")))
 
+    def submitter(self, commit, app):
+        path = app + "/OlaresManifest.yaml"
+        raw = self.file(commit, path)
+        if raw is None and self.tree(commit, app + "/.remove"):
+            old = self.text("log", "-1", "--diff-filter=AM", "--format=%H", commit, "--", path)
+            raw = self.file(old, path) if old else None
+        value = manifest_field(raw, "spec", "submitter")
+        return value.strip() if isinstance(value, str) else None
+
     def snapshot(self, source, target, app, message):
         """Construct an index tree: target outside app, exact source inside app."""
         app_name(app)
@@ -151,7 +185,29 @@ class Git:
                 "archive": archive, "old": fork, "new": upstream}
 
 
-def validate_app(git, source, target, app, login, suspend_rule="increase"):
+def owner_authorized(raw, login, org_member=None):
+    """Read only owner usernames, never titles/comments or arbitrary YAML words."""
+    try:
+        data = yaml.safe_load(raw or b"")
+    except yaml.YAMLError:
+        raise Error("invalid owners YAML") from None
+    if isinstance(data, dict):
+        data = data.get("owners", [])
+    if isinstance(data, str):
+        data = data.splitlines()  # legacy plain-login files
+    if not isinstance(data, list):
+        return False
+    names = []
+    for item in data:
+        value = item.get("username") if isinstance(item, dict) else item
+        if isinstance(value, str) and re.fullmatch(r"@?[A-Za-z0-9_-]+", value.strip()):
+            names.append(value.strip())
+    if any(name.lstrip("@").casefold() == login.casefold() for name in names):
+        return True
+    return bool(org_member and any(org_member(name[1:]) for name in names if name.startswith("@")))
+
+
+def validate_app(git, source, target, app, login, suspend_rule="increase", check_owners=True, org_member=None):
     """Validate target protocol without changing the selected source bytes."""
     app_name(app)
     files = git.text("ls-tree", "-r", "--name-only", source, "--", app).splitlines()
@@ -168,14 +224,14 @@ def validate_app(git, source, target, app, login, suspend_rule="increase"):
         kind = "REMOVE"
         owners_bytes = git.file(target, app + "/owners")
     else:
-        manifest = yaml.safe_load(git.file(source, app + "/OlaresManifest.yaml") or b"")
+        manifest = git.file(source, app + "/OlaresManifest.yaml")
         chart = yaml.safe_load(git.file(source, app + "/Chart.yaml") or b"")
-        if not isinstance(manifest, dict) or not isinstance(chart, dict):
+        if not manifest or not isinstance(chart, dict):
             raise Error("source Chart.yaml and OlaresManifest.yaml are required")
         version = str(chart.get("version", ""))
         if not re.fullmatch(r"[0-9A-Za-z.+-]+", version):
             raise Error("invalid chart version")
-        if str(manifest.get("metadata", {}).get("version")) != version:
+        if str(manifest_field(manifest, "metadata", "version")) != version:
             raise Error("Chart/Manifest versions differ")
         for path in files:
             if path.endswith("/Chart.yaml"):
@@ -194,11 +250,10 @@ def validate_app(git, source, target, app, login, suspend_rule="increase"):
             raise Error("cannot suspend an app absent from target")
         kind = "SUSPEND" if suspending else ("UPDATE" if old else "NEW")
         owners_bytes = git.file(source, app + "/owners")
-        if old:
-            existing_owners = (git.file(target, app + "/owners") or b"").decode()
-            if login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", existing_owners)}:
+        if old and check_owners:
+            existing_owners = git.file(target, app + "/owners")
+            if not owner_authorized(existing_owners, login, org_member):
                 raise Error("GitHub identity is not an existing target owner")
-    owners = (owners_bytes or b"").decode()
-    if login.lower() not in {x.lower() for x in re.findall(r"[A-Za-z0-9_-]+", owners)}:
+    if check_owners and not owner_authorized(owners_bytes, login, org_member):
         raise Error("GitHub identity is not an app owner")
     return kind, version
